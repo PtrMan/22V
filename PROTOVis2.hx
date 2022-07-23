@@ -1,0 +1,767 @@
+// protoype for vision with ART
+
+// file history:
+// 15.07.2022: initial version
+
+import Vec2;
+import ImageOperators;
+import BRealvectorUtils;
+import BBitvectorUtils;
+import Rng0;
+import ProtoobjectClassifier;
+
+import GaborKernel;
+
+import MyArt_v1;
+
+class PROTOVis2 {
+    
+
+    // initializes
+    public static function defaultInit(ctx: Vis2Ctx) {
+        var prototypeClassifier__VecLen: Int = 300;
+        var prototypeClassifier__gridElementsPerDimension: Int = 6;
+        var prototypeClassifier__thresholdCreateNewItem: Float = 0.71; // TODO< tune this! >
+
+        ctx.prototypeClassifierCtx = new ProtoobjectClassifierCtx(prototypeClassifier__VecLen, prototypeClassifier__gridElementsPerDimension);
+        ctx.prototypeClassifierCtx.thresholdCreateNewPrototype = prototypeClassifier__thresholdCreateNewItem;
+
+
+        ctx.paramSaccadesNMax = 3000; //2000; // AIKR setting
+        ctx.foveaWidthPixels = 20; // AIK setting
+        ctx.saccadePositionSimThreshold = 0.88; // TODO< tune this! >
+
+        ctx.artClassifier = new MyArt_v1();
+
+        // TODO< bigger size of image? >
+        ctx.artClassifier.vecWidth = (ctx.foveaWidthPixels*ctx.foveaWidthPixels) * 2; // NOTE< last multiplication is for number of convolutions used for classification >
+        
+        
+        ctx.artClassifier.a = 7.5; //120.0; //0.1; //7.5; //12.5;     // 12.5; //0.2; //12.5; // 7.5  // more contrast?
+        ///ctx.artClassifier.b = 1.01;
+        ctx.artClassifier.vigilance = 1.0; // 1.0 // more classes
+        
+
+
+        // new settings - works great by creating lots of classes
+        ctx.artClassifier.a = 20.0; //220.5;
+        ctx.artClassifier.e = 2.0;
+        ctx.artClassifier.vigilance = 0.5;
+
+        
+
+        // tuning 
+        ctx.artClassifier.vigilance = 0.99;
+
+        
+        ctx.artClassifier.init(ctx.artRng);
+
+
+
+
+        // make sure all ids of the point to a valid unique HD-vector
+        var rngUsedForUniqueVectors: Rng0 = new CryptoRng0("hd0");
+        for (iId in 0...ctx.artClassifier.prototypes.length) {
+            ctx.prototypeClassifierCtx.circuitCtx.idLookupTable.set(iId, BRealvectorUtils.genRandom(ctx.prototypeClassifierCtx.circuitCtx.vecLen, rngUsedForUniqueVectors));
+        }
+
+
+
+
+        ctx.img = new Map2dRgb(32,32); // init with dummy image
+    }
+
+    // function to push a new image.
+    // it tells the vision system that the image has changed, this triggers further (pre)-processing
+    public static function notifyImageUpdated(ctx: Vis2Ctx) {
+        if (true) { // do we compute convolutions???
+            // compute all necessary convolutions
+            var convolutionImages: Array<Map2dRgb> = _helper__calcConv(ctx);
+
+            // store convolution images in context
+            ctx.convolutionImages = convolutionImages;
+        }
+    }
+
+    // implementation of single cycle of processing
+    public static function doCycle(ctx: Vis2Ctx) {
+        ctx.cycleEpoch++;
+        
+        if (true) { // DBG level 1
+            Sys.print('\n\n\n');
+        }
+
+        if (ctx.cycleEpoch % 231 == 0) { // check for condition to do GC
+            SaccadeSetUtils.saccadeSetGc(ctx); // force GC
+        }
+
+
+        //ctx.eyeSaccadeRng = new CryptoRng0("4243"); // HACK TESTING< force a new rng for the same eye saccade coordinates >
+        var candidateSaccadePositions: Array<Vec2> = eyeSaccadePathGen__generateRandomEyeSaccade (3, ctx.img.w, ctx.eyeSaccadeRng);
+
+        // * execute saccade
+        var foveaCenterLoc: Vec2 = ctx.foveaCenterProposalStrategy.calcNextProposalPos(ctx.foveaCenterRng, {w:ctx.img.w,h:ctx.img.h}); // generate new center position of fovea
+        var candidateSaccadeClasses: Array<Int> = eyeSaccade__exec(candidateSaccadePositions, foveaCenterLoc,  ctx.artClassifier, ctx);
+        
+        if (true) { // DBG
+            Sys.println('classes of saccade:');
+            for (iClass in candidateSaccadeClasses) {
+                Sys.println('   cls=$iClass');
+            }
+        }
+
+        // * create new EyesaccadePath from the classifications
+        var saccade: EyesaccadePath = new EyesaccadePath();
+        for (iIdx in 0...candidateSaccadePositions.length) {
+            var iRelPosition: Vec2 = candidateSaccadePositions[iIdx];
+            var iClass: Int = candidateSaccadeClasses[iIdx];
+            saccade.pathItems.push(new PathItem(iRelPosition, iClass));
+        }
+
+        // * cast to SaccadeWithHdEncoding
+        var saccadeWithHdEncoding: PathWithHdEncoding = SaccadeSetUtils.castPathToPathWithHdEncoding(saccade,  ctx);
+
+        // * try to find similar existing saccade
+        var bestCandidateExistingSaccade: DecoratedPathWithHdEncoding = SaccadeSetUtils.lookupBestSaccadeByPositionAndVertexClass(saccadeWithHdEncoding,  ctx);
+        
+        var chosenCandidateSaccade: DecoratedPathWithHdEncoding = bestCandidateExistingSaccade; // variable which holds the chosen saccade
+        if (bestCandidateExistingSaccade == null) { // was no best matching eye saccade found?
+            if (true) { // DBG
+                Sys.println('DBG: add saccade');
+            }
+
+            chosenCandidateSaccade = SaccadeSetUtils.appendSaccade(saccadeWithHdEncoding,  ctx);
+        }
+
+        chosenCandidateSaccade.cycleEpochLastUse = ctx.cycleEpoch; // we need to update this to know which saccade was used last for GC
+
+        // OUTPUT
+        Sys.println('OUT: saccade.id=${chosenCandidateSaccade.id} pos=<${Std.int(foveaCenterLoc.x)} ${Std.int(foveaCenterLoc.y)}>'); // output to outside system a message that
+        Sys.println('OUTN:<{(saccid${chosenCandidateSaccade.id}*(${Std.int(foveaCenterLoc.x/10)}*${Std.int(foveaCenterLoc.y/10)}))} --> perceptSac>. :|:'); // create narsese
+    }
+
+    // must be called when the processing of a frame is done
+    public static function endFrame(ctx: Vis2Ctx) {
+        // a) use prototype classifier to classify all objects visible in scene
+        {
+            // collect stimulus items of sub-frame of image
+            // /param center is the absolute position in the frame of the center to collect the level0 classifications from
+            function collectStimulusItemsOfSubFrame(center:{x:Int,y:Int}): Array<{pos:{x:Int,y:Int},id:Int}> {
+                
+                // helper to compute if a absolute position is inside the sub-frame
+                function isInSubframe(pos: {x:Int,y:Int}) {
+                    var frameSize: Int = Std.int(ctx.img.w/5.0); // TODO< add this as a parameter to ctx!!! >
+                    
+                    var diffX: Int = pos.x - center.x;
+                    var diffY: Int = pos.y - center.y;
+                    
+                    var absDiffX: Int = MathUtils2.absInt(diffX);
+                    var absDiffY: Int = MathUtils2.absInt(diffY);
+
+                    return absDiffX <= frameSize/2 && absDiffY <= frameSize/2;
+                }
+                
+                var samplesInFrame = ctx.level0SampleContainer.filter(iv -> isInSubframe({x:iv.pos.x,y:iv.pos.y}));
+                return samplesInFrame;
+            }
+
+            // convert from absolute position to relative position relative to frame
+            // IMPLEMENTATION< details need to be syncronized with implementation of collectStimulusItemsOfSubFrame() ! >
+            function mapAbsolutePosToRelative(center:{x:Int,y:Int}, v:{pos:{x:Int,y:Int},id:Int}): {pos:{x:Float,y:Float},id:Int} {
+                var frameSize: Int = Std.int(ctx.img.w/5.0); // TODO< add this as a parameter to ctx!!! >
+
+                var diffX: Int = v.pos.x - center.x;
+                var diffY: Int = v.pos.y - center.y;
+
+                return {pos:{x:diffX / frameSize,y:diffY / frameSize},id:v.id};
+            }
+
+
+
+            var frameSize: Int = Std.int(ctx.img.w/5.0);
+
+            // used to collect the protoObjects for this frame
+            var protoObjects: Array<{center:{x:Int,y:Int},protoobj:ProtoobjectClassifierItem}> = [];
+
+            for (iGridYmul in 0...Std.int( ctx.img.h / (frameSize/2.0))) {
+                for (iGridXmul in 0...Std.int( ctx.img.w / (frameSize/2.0))) {
+                    // compute center of iterated grid position
+                    var iCenterX: Int = Std.int(iGridXmul * (frameSize/2.0));
+                    var iCenterY: Int = Std.int(iGridYmul * (frameSize/2.0));
+
+
+                    var stimulusItemsA: Array<{pos:{x:Int,y:Int},id:Int}> = [];
+                    var sampledCenter: {x:Int,y:Int} = {x:iCenterX,y:iCenterY};
+                    stimulusItemsA = collectStimulusItemsOfSubFrame(sampledCenter);
+        
+                    // map to relative positions
+                    var stimulusItems: Array<{pos:{x:Float,y:Float},id:Int}> = stimulusItemsA.map(iv -> mapAbsolutePosToRelative(sampledCenter, iv));
+                    
+        
+                    // * compute protoobject coresponding with the perceived protoobject at the given position
+                    var protoobjectAtCenter: ProtoobjectClassifierItem = ProtoobjectClassifier.classify(stimulusItems,  ctx.prototypeClassifierCtx); // classify samples to get level1 classification
+                    
+                    
+                    // store "protoobjectAtCenter"
+                    protoObjects.push({center:{x:iCenterX,y:iCenterY},protoobj:protoobjectAtCenter});
+                }
+            }
+
+            // report "protoObjects" for this frame
+            {
+                ctx.sinkProtoobjects.reportProtoobjectsOfFrame(protoObjects);
+            }
+        }
+
+        // b) flush container of level0 samples
+        ctx.level0SampleContainer = [];
+    }
+
+    // helper to compute convolution
+    // TODO< use it in doCycle() function >
+    // /return array of different convolutions
+    public static function _helper__calcConv(ctx:Vis2Ctx): Array<Map2dRgb> {
+
+        var convResult0: Map2dFloat;
+        var convResult1: Map2dFloat;
+
+        { // convolution
+            // TODO 11.12.2021 : implemented array of kernels and convolution results and check if the kernels look good!
+
+            var lamdba: Float = 1 * (Math.PI/4);
+
+            var kernel0: Map2dFloat;
+            {
+                var phi: Float = 0 * (Math.PI/4);
+                kernel0 = GaborKernel.generateGaborKernel(15, phi /* for testing: 0.4 */, lamdba, 0.0, 1.0);
+            }
+    
+    
+            // TODO< compute gray channel and extract then ! >
+            var imgR: Map2dFloat = ImageOperators.extractChannelRed(ctx.img);
+    
+            convResult0 = ImageOperators.conv1(imgR, kernel0); // compute convolution
+    
+            // DBG - dump to file
+            ///if(false) PpmExporter.export(ImageOperators.convOneChannelToRgb(convResult0), 'dbgOut_conv0_${dbgFrameNumber}.ppm');
+            ///if(false) PpmExporter.export(img, 'dbgOut_input_${dbgFrameNumber}.ppm');
+
+
+            var kernel1: Map2dFloat;
+            {
+                var phi: Float = 1 * (Math.PI/4);
+                kernel1 = GaborKernel.generateGaborKernel(15, phi, lamdba, 0.0, 1.0);
+            }
+
+            convResult1 = ImageOperators.conv1(imgR, kernel1); // compute convolution
+        }
+
+        var convResult0AsRgb: Map2dRgb = ImageOperators.convOneChannelToRgb(convResult0); //& convert to RGB because some functions are only implemented for RGB
+        var convResult1AsRgb: Map2dRgb = ImageOperators.convOneChannelToRgb(convResult1); //& convert to RGB because some functions are only implemented for RGB
+
+        return [convResult0AsRgb,convResult1AsRgb];
+    }
+
+    // execute eye cassade
+    // /return array of classifications for each vertex of the path
+    public static function eyeSaccade__exec(saccade:Array<Vec2>, center:Vec2,  artClassifier: MyArt_v1, ctx: Vis2Ctx): Array<Int> {
+        var enCollectSamplesIntoContainer: Bool = true; // collect the samples into a level0 container?
+        
+        var pathClasses: Array<Int> = [];
+
+        var pathRecorder: Array<{x:Int,y:Int,class_:Int}> = []; // accumulates the path taken, used for debugging
+
+        for (iSaccadeRelativePosition in saccade) {
+            var absolutePosition: Vec2 = Vec2.add(center, Vec2.scale(
+                iSaccadeRelativePosition, 
+                ctx.img.w*       (ctx.param__SaccadeLevel0__cropRatio*ctx.param__SaccadeLevel0__saccadeRatio)    ));
+
+            Sys.println('DBG: saccade: exec at position=<${absolutePosition.x} ${absolutePosition.y}>');
+
+
+            // crop at absolute position from environment
+            //var stimulusImageRgb: Map2dRgb = ImageOperators.subImg(ctx.img, Std.int(absolutePosition.x) - Std.int(8/2), Std.int(absolutePosition.y) - Std.int(8/2), 8, 8);
+            var outSize: Int = ctx.foveaWidthPixels; // must be divisable by 2
+            
+            
+            ///commented because this isn't doing any convolution, and we are using convolution
+            ///var stimulusImageRgb: Map2dRgb = ImageOperators.subImgWithScalingByCenter(ctx.img, {x:Std.int(absolutePosition.x),y:Std.int(absolutePosition.y)}, Std.int(ctx.img.w*0.08), outSize);
+            ///
+            ///var stimulusImageMonochrome: Map2dFloat = ImageOperators.extractChannelRed(stimulusImageRgb);
+            ///
+            ///var stimulusVec: Array<Float> = convMap2dFloatToVec(stimulusImageMonochrome);
+
+            var stimulusVec: Array<Float> = []; // accumulator for stimulus vector
+
+            for (iConvIdx in 0...ctx.convolutionImages.length) { // iterate over different convolutions
+                var stimulusImageConvRgb: Map2dRgb = ImageOperators.subImgWithScalingByCenter(ctx.convolutionImages[iConvIdx], {x:Std.int(absolutePosition.x),y:Std.int(absolutePosition.y)}, Std.int(ctx.img.w*ctx.param__SaccadeLevel0__cropRatio), outSize);
+                
+                var stimulusImageConvMonochrome: Map2dFloat = ImageOperators.extractChannelRed(stimulusImageConvRgb);
+                
+                var stimulusPartVec: Array<Float> = convMap2dFloatToVec(stimulusImageConvMonochrome);
+                stimulusVec = stimulusVec.concat(stimulusPartVec);
+            }
+
+
+
+            // idea: brighten stimulus+normalization
+            //       
+            //       Here we normalize the complete input, which seems to be biological plausible (as advocated by Grossberg).
+            //       This has a nice sideeffect to map the stimulus into a [0.0;1.0] range
+            
+            // HACK< add small value to avoid singularity when all values are zero >
+            // TODO LOW< implement better handling to only do this when all values are exactly 0.0 ! >
+            stimulusVec[0] += 1e-7;
+
+            var stimulusNormalizedVec: Array<Float> = BRealvectorUtils.normalize(stimulusVec);
+            var classifierInputVec: Array<Float> = VecHelper3.addScalar(stimulusNormalizedVec, 1e-7); // add a very small value to avoid 0.0, which ART doesn't seem to "like" at all
+
+            // DBG
+            //trace(stimulusVec);
+            //trace(classifierInputVec);
+
+            // * classify with learning
+            var classifiedClass: Int = artClassifier.calc(classifierInputVec);
+
+            // remember for path-recorder
+            pathRecorder.push({x:Std.int(absolutePosition.x),y:Std.int(absolutePosition.y),class_:classifiedClass});
+
+            // collect for sampleLevel0container
+            if (enCollectSamplesIntoContainer) {
+                ctx.level0SampleContainer.push({pos:{x:Std.int(absolutePosition.x),y:Std.int(absolutePosition.y)},id:classifiedClass});
+            }
+
+
+            pathClasses.push(classifiedClass);
+        }
+
+
+
+        { // report to sink (for debugging etc)
+            ctx.sinkEyeSaccades.reportEyeSaccadePath(pathRecorder);
+        }
+
+        return pathClasses;
+    }
+
+    // generator for relative positions of eye saccade
+    public static function eyeSaccadePathGen__generateRandomEyeSaccade (count:Int, imgWidth:Int, rng: Rng0): Array<Vec2> {
+        var resPath: Array<Vec2> = [new Vec2(0.0,0.0)];
+
+        //var relativeFactor: Float = 8.0; // relative factor used to compute relative fovea change
+
+        for (i in 1...count) {
+            var x = MathHelper2.rngRange2(-1.0, 1.0, rng);
+            var y = MathHelper2.rngRange2(-1.0, 1.0, rng);
+            resPath.push( new Vec2(x,y) );
+        }
+
+        return resPath;
+    }
+
+
+
+
+    // helper to convert image to vector
+    public static function convMap2dFloatToVec (map:Map2dFloat): Array<Float> {
+        var res = [];
+        for (iy in 0...map.h) {
+            for (ix in 0...map.w) {
+                res.push(map.readAtUnsafe(iy,ix));
+            }
+        }
+        return res;
+    }
+
+}
+
+// context for vision processing
+class Vis2Ctx {
+    // parameters / settings
+    public var paramSaccadesNMax: Int = 100; // maximal number of saccades to maintain, is a AIKR parameter
+    public var saccadePositionSimThreshold: Float = -1.0; // threshold of similarity of positions which is used to determine if saccade is similar enough to existing ones
+    public var foveaWidthPixels: Int = 2; // width of fovea in pixels
+
+
+    public var param__SaccadeLevel0__cropRatio: Float = 0.08; // ratio of how "wide" the sub-image which is perceived by the fovea is       relative to image width 
+
+    public var param__SaccadeLevel0__saccadeRatio: Float = 1.2; // ratio of how far away a vertex of a eye saccade can deviate,   relative to image width 
+                                                                // how much does the fovea jump around relative to image width and "jumpness factor" of the fovea center?
+
+
+
+    // reporters
+    public var sinkEyeSaccades: SinkEyeSaccades = new SinkEyeSaccadesNull(); // sink for eye saccades reported to, useful for debugging etc.
+    public var sinkProtoobjects: SinkProtoobjects = new SinkProtoobjectsNull(); // sink for protoobjects to report to for each frame
+
+
+
+
+
+    public var level0SampleContainer: Array<{pos:{x:Int,y:Int},id:Int}> = []; // container with samples of level0, flushed after each frame
+
+
+
+    public var img: Map2dRgb; // current presented input image
+
+    public var convolutionImages: Array<Map2dRgb>; // images of result of convolution, used internally!
+
+
+    public var artClassifier: MyArt_v1; // classifier used to classify raw low level stimulus
+
+
+
+    // set of all known paths with different encodings
+    // set is maintained under AIKR
+    public var saccadeSet: Array<DecoratedPathWithHdEncoding> = [];
+
+
+
+
+    // classifier for the prototypes of protoobjects which is fed with classification+relative position of datapoints from the "low level" classifier (in our case ART2)
+    public var prototypeClassifierCtx: ProtoobjectClassifierCtx = null;
+
+
+
+    // the used strategy for the 
+    public var foveaCenterProposalStrategy: FoveaCenterPropsalStrategy = new FoveaCenterPropsalStrategy();
+
+
+    // running variables
+    public var saccadeUniqueIdCounter: Int = 1; // counter used to generate unique ids of saccades, mainly used to "name" a saccade
+    public var cycleEpoch: Int = 0; // used to differentiate between different cycles, used for resource allocation
+
+    // permutations
+    public var permVecX: Array<Int>; // permutation for x vector
+    public var permVecY: Array<Int>; // permutation for y vector
+    public var permVecPositionsShuffle: Array<Int>; // permutation to shuffle around position vector
+
+    // rng
+    public var eyeSaccadeRng: Rng0 = new CryptoRng0("4243"); // rng used for generation of eye saccades
+    public var foveaCenterRng: Rng0 = new CryptoRng0("4321"); // rng used for generation of center of fovea
+    public var artRng: Rng0 = new CryptoRng0("4332"); // rng used for ART initialization
+
+    public function new() {
+        var rng: Rng0 = new CryptoRng0("4242");
+
+        permVecX = BBitvectorUtils.genPerm(60, rng);
+        permVecY = BBitvectorUtils.genPerm(60, rng);
+        permVecPositionsShuffle = BBitvectorUtils.genPerm(60, rng);
+    }
+}
+
+
+// helper which provides helpers to manage saccades
+class SaccadeSetUtils {
+    public static function appendSaccade(saccade: PathWithHdEncoding,  ctx: Vis2Ctx): DecoratedPathWithHdEncoding {
+        var saccadeUniqueId: Int = ctx.saccadeUniqueIdCounter++;
+        var decoratedSaccade: DecoratedPathWithHdEncoding = new DecoratedPathWithHdEncoding(saccade, saccadeUniqueId);
+
+        // NOTE< we don't enforce AIK here! >
+        ctx.saccadeSet.push(decoratedSaccade);
+
+        Sys.println('DBG nSaccadeSet=${ctx.saccadeSet.length}');
+
+        return decoratedSaccade;
+    }
+
+    public static function lookupBestSaccadeByPositionAndVertexClass(saccade: PathWithHdEncoding,  ctx: Vis2Ctx): DecoratedPathWithHdEncoding {
+        var bestHitSaccadePositionSim: Float = -1.0;
+        var bestHitSaccade: DecoratedPathWithHdEncoding = null;
+
+        for (itSaccadeWithPayload in ctx.saccadeSet) {
+            var itSaccade: PathWithHdEncoding = itSaccadeWithPayload.payload;
+            
+            if (saccade.pathSaccade.pathItems.length != itSaccade.pathSaccade.pathItems.length) {
+                continue; // iterated doesn't matter if the count of vertices is not the same!
+            }
+            
+            // count how many classifications of vertices coincide
+            var vertexclassCoincideCnt: Int = 0;
+            for (iVertexIdx in 0...saccade.pathSaccade.pathItems.length) {
+                if (saccade.pathSaccade.pathItems[iVertexIdx].class_ == itSaccade.pathSaccade.pathItems[iVertexIdx].class_) {
+                    vertexclassCoincideCnt++;
+                }
+            }
+
+
+            // lookup minimal count of overlapping classes of vertices that we accept it as a viable candidate
+            // TODO REFACTOR LOW< do we get away here with just a simple calculation like the the else branch??? >
+            var minimalVertexclassCoincide: Int = 0;
+            if (saccade.pathSaccade.pathItems.length == 2) {
+                minimalVertexclassCoincide = 1;
+            }
+            else if (saccade.pathSaccade.pathItems.length == 3) {
+                minimalVertexclassCoincide = 2;
+            }
+            else if (saccade.pathSaccade.pathItems.length == 4) {
+                minimalVertexclassCoincide = 2;
+            }
+            else {
+                minimalVertexclassCoincide = Std.int(saccade.pathSaccade.pathItems.length * 3 / 2);
+            }
+
+            if(false) {
+                minimalVertexclassCoincide = saccade.pathSaccade.pathItems.length; // HACk< it's probably better if all classes match up! >
+            }
+
+
+            // reject by criterion of overlapping classes of vertices
+            if (vertexclassCoincideCnt < minimalVertexclassCoincide) {
+                continue; // to little overlap!
+            }
+
+
+            var positionVecSim: Float = BRealvectorUtils.calcCosineSim(itSaccade.vecPositions, saccade.vecPositions);
+
+
+            ///trace('DBG: lookupBestSaccade: icandidate similarity=$positionVecSim'); // DBG
+
+
+            if (positionVecSim > bestHitSaccadePositionSim) {
+                bestHitSaccadePositionSim = positionVecSim;
+                bestHitSaccade = itSaccadeWithPayload;
+            }
+        }
+        
+        Sys.println('DBG: lookupBestSaccade: bestHitSaccadePositionSim=${bestHitSaccadePositionSim}');
+        if (bestHitSaccadePositionSim < ctx.saccadePositionSimThreshold ) { // wasn't a good saccade with similar positions found?
+            return null;
+        }
+
+        return bestHitSaccade;
+    }
+
+    // used to keep memory under AIK
+    // this has to be called from time to time by the main-loop
+    public static function saccadeSetGc(ctx: Vis2Ctx) {
+        var inplace: Array<DecoratedPathWithHdEncoding> = ctx.saccadeSet.copy();
+
+        // * sort by usefulness
+        // TODO< better sorting criterion! >
+        inplace.sort((a, b) -> MathHelper2.sign(  Math.exp(-0.08*(ctx.cycleEpoch - b.cycleEpochLastUse)) - Math.exp(-0.08*(ctx.cycleEpoch - a.cycleEpochLastUse))  ));
+
+        // DBG
+        for(iv in inplace) {
+            trace(iv.cycleEpochLastUse);
+        }
+
+        var inplaceKeep: Array<DecoratedPathWithHdEncoding> = inplace.slice(0, ctx.paramSaccadesNMax);
+
+        trace('GC lenbefore=${ctx.saccadeSet.length}');
+        ctx.saccadeSet = inplaceKeep; // keep under AIK
+        trace('GC lenafter=${ctx.saccadeSet.length}');
+    }
+
+
+    public static function castPathToPathWithHdEncoding(eyesaccadePath: EyesaccadePath,  ctx:Vis2Ctx): PathWithHdEncoding {
+        var vecLen: Int = 60; // length of used vector to encode all of it
+        
+        // convert the explicit representation of the positions to a representation useful for HD-computing
+        var vecPositions: Array<Float> = BRealvectorUtils.genZero(vecLen); // used as accumulator for the HD-representation of the positions
+
+        for (iVertex in eyesaccadePath.pathItems) { // iterate over vertices of path
+            var xInRange: Float = MathUtils2.convTo01Range(iVertex.relRelPos.y, -1.0, 1.0);
+            var yInRange: Float = MathUtils2.convTo01Range(iVertex.relRelPos.y, -1.0, 1.0);
+            
+            var vecXReal: Array<Float> = BRealvectorUtils.convRealValue01ToVec(xInRange, vecLen, Std.int(vecLen/7));
+            var vecYReal: Array<Float> = BRealvectorUtils.convRealValue01ToVec(yInRange, vecLen, Std.int(vecLen/7));
+            
+            //trace(""); // DBG
+            //trace('X=$vecXReal'); // DBG
+            //trace('Y=$vecYReal'); // DBG
+
+            var vecXPermutatedReal: Array<Float> = BRealvectorUtils.perm(vecXReal, ctx.permVecX);
+            var vecYPermutatedReal: Array<Float> = BRealvectorUtils.perm(vecYReal, ctx.permVecY);
+
+            // * merge vectors to single vector
+            vecPositions = BRealvectorUtils.perm(vecPositions, ctx.permVecPositionsShuffle); // use permutation to "shuffle" around the vector so we can in principle stuff in any number of real-values into it!
+
+            vecPositions = BRealvectorUtils.add(vecPositions, vecXPermutatedReal);
+            vecPositions = BRealvectorUtils.add(vecPositions, vecYPermutatedReal);
+        }
+
+        //trace(vecPositions); // DBG
+
+        return new PathWithHdEncoding(vecPositions, eyesaccadePath);
+    }
+}
+
+
+// decoration holding attention metainformation and other meta-information about the path
+class DecoratedPathWithHdEncoding {
+    public var payload: PathWithHdEncoding;
+
+
+    public var id: Int; // unique id of the path
+    // TODO REFACTOR< id should be Int64 ! >
+
+
+    public var cycleEpochLastUse: Int = 0; // cycle time of last READ use
+    // TODO REFACTOR< value should be Int64 ! >
+
+    public function new(payload,  id) {
+        this.payload = payload;
+        this.id = id;
+    }
+}
+
+
+
+// path with HD encoding
+// carries explicit symbolic information about the path for easier manipulation
+class PathWithHdEncoding {
+    public var vecPositions: Array<Float>; // hyperdimensional vector representing  position tuples
+
+    public var pathSaccade: EyesaccadePath; // symbolic path with relative positions
+
+    public function new(vecPositions, pathSaccade) {
+        this.vecPositions = vecPositions;
+        this.pathSaccade = pathSaccade;
+    }
+}
+
+
+
+
+// part of eye saccade
+class EyesaccadePath {
+    public var pathItems: Array<PathItem> = [];
+
+    public function new() {}
+}
+
+class PathItem {
+    public var relRelPos: Vec2; // relative position to some reference in fovea real valued frame in range [-1.0;1.0]
+    public var class_: Int; // class of the classification at this position
+
+    public function new(relRelPos, class_) {
+        this.relRelPos = relRelPos;
+        this.class_ = class_;
+    }
+}
+
+
+
+// used to generate proposals of center position of fovea
+//   criterion could be  heatmap by change which is a proxy of motion, etc.
+class FoveaCenterPropsalStrategy {
+
+    public function new() {}
+
+    public function calcNextProposalPos(rng:Rng0, imagesize: {w:Int,h:Int}): Vec2 {
+        var centerX: Int = Std.int(imagesize.w/2 +   MathHelper2.rngRange2(-imagesize.w/2.0, imagesize.w/2.0, rng));
+        var centerY: Int = Std.int(imagesize.h/2 +   MathHelper2.rngRange2(-imagesize.h/2.0, imagesize.h/2.0, rng));
+        //return new Vec2(16.0 + MathHelper2.rngRange2(-16.0/2.0, 16.0/2.0, rng), 16.0 + MathHelper2.rngRange2(-16.0/2.0, 16.0/2.0, rng));
+        return new Vec2(centerX,centerY);
+    }
+}
+
+
+
+class MathHelper2 {
+    // helper
+    public static function rngRange2(low:Float, high:Float, rng: Rng0): Float {
+        return low + (high-low)*rng.genFloat01();
+    }
+
+    // helper which return -1 if value is below 0.0, 0 if its equal and 1 if it is above 0.0
+    public static function sign(v:Float): Int {
+        if (v > 0.0) {
+            return 1;
+        }
+        else if (v < 0.0) {
+            return -1;
+        }
+        return 0;
+    }
+}
+
+
+// custom vector math helper
+class VecHelper3 {
+    // add scalar value
+    // usually used to "brighten" vector
+    public static function addScalar(vec: Array<Float>, val: Float): Array<Float> {
+        var res: Array<Float> = [];
+        for(iv in vec) {
+            res.push(iv+val);
+        }
+
+        return res;
+    }
+}
+
+
+
+
+
+// interface used to report eye saccades
+// is useful for debugging/reporting
+interface SinkEyeSaccades {
+    // report a path with 
+    function reportEyeSaccadePath(path:Array<{x:Int,y:Int,class_:Int}>): Void;
+}
+
+class SinkEyeSaccadesNull implements SinkEyeSaccades {
+    public function new() {}
+    public function reportEyeSaccadePath(path:Array<{x:Int,y:Int,class_:Int}>) {}
+}
+
+
+
+// interface used for reporting protoobjects of a frame
+interface SinkProtoobjects {
+    // report all protoobjects for a frame
+    function reportProtoobjectsOfFrame(objs:Array<{center:{x:Int,y:Int},protoobj:ProtoobjectClassifierItem}>): Void;
+}
+
+class SinkProtoobjectsNull implements SinkProtoobjects {
+    public function new() {}
+    public function reportProtoobjectsOfFrame(objs:Array<{center:{x:Int,y:Int},protoobj:ProtoobjectClassifierItem}>) {}
+}
+
+
+
+
+
+
+
+// DONE LOW< add reading of ppm of movie of natural image >
+// DONE LOW< add id to contingency >
+
+// DONE vision: saccade < fix similarity calculation of saccade so it is more sensivitve to the RelRel positions >
+
+// DONE MID diagnostics< add latex report for microactions for debugging >
+
+// DONE protobjects< make use of ProtoobjectClassifierCtx when we are done sampling from the frame!!! >
+
+// HALFDONE LOW< implement GC  by age, usage, last usage >
+
+
+
+
+
+
+
+// TODO MID 20.07.2022 preprocessing< add more convolution orientations! >
+
+
+// TODO MID 20.07.2022 tooling< hook up to ONA with a python script and pass output of vision channel to ONA >
+
+
+
+
+
+
+
+
+
+// TODO saccades< think of a way to combine saccades to "high level saccades" which we can use to recognize objects >
+
+
+
+// TODO protoobjects< implement Sink for protoobjects in "EntryVisionManualTest0.hx" to add the protoobjects detected in a frame to the generated latex-report! >
+
+
+
