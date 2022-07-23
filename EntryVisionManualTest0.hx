@@ -277,15 +277,12 @@ class SinkProtoobjectsLatexTikz implements SinkProtoobjects {
 
 
         // fill with graph of the protoobjects detecte in this frame
-        for( iObj in objs) {
+        for (iObj in objs) {
             // map image coordinates to latex friendly coordinates
             var x: Float = iObj.center.x*(14.0/visionCtx.img.w);
             var y: Float = iObj.center.y*(8.0/visionCtx.img.h);
 
-            // TODO TODOD TODOD TI=DFJKJIJIFJIJIHJU
-            // TODO TODOD TODOD TI=DFJKJIJIFJIJIHJU
-            // TODO TODOD TODOD TI=DFJKJIJIFJIJIHJU
-            PROTOExportLatex.emitTikzTextnode('TODO - id of the protoobject',{x:x,y:y},  latexSinkCtx);
+            PROTOExportLatex.emitTikzTextnode('${iObj.protoobj.id}',{x:x,y:y},  latexSinkCtx);
         }
 
 

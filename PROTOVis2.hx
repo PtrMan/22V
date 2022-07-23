@@ -25,7 +25,7 @@ class PROTOVis2 {
 
         ctx.prototypeClassifierCtx = new ProtoobjectClassifierCtx(prototypeClassifier__VecLen, prototypeClassifier__gridElementsPerDimension);
         ctx.prototypeClassifierCtx.thresholdCreateNewPrototype = prototypeClassifier__thresholdCreateNewItem;
-
+        ctx.prototypeClassifierCtx.param__nMaxProtoobjects = 1000; // AIKR setting
 
         ctx.paramSaccadesNMax = 3000; //2000; // AIKR setting
         ctx.foveaWidthPixels = 20; // AIK setting
@@ -93,6 +93,10 @@ class PROTOVis2 {
 
         if (ctx.cycleEpoch % 231 == 0) { // check for condition to do GC
             SaccadeSetUtils.saccadeSetGc(ctx); // force GC
+        }
+
+        if (ctx.cycleEpoch % 9481 == 0) {
+            ProtoobjectClassifier.gc(ctx.cycleEpoch, ctx.prototypeClassifierCtx);
         }
 
 
@@ -183,11 +187,13 @@ class PROTOVis2 {
             // used to collect the protoObjects for this frame
             var protoObjects: Array<{center:{x:Int,y:Int},protoobj:ProtoobjectClassifierItem}> = [];
 
-            for (iGridYmul in 0...Std.int( ctx.img.h / (frameSize/2.0))) {
-                for (iGridXmul in 0...Std.int( ctx.img.w / (frameSize/2.0))) {
+            var config__protoobjectSubframe_inverseIncrement: Float = 3.0; // config - how many times is the stepsize divided of the framesize for the subframe for protoobjects
+
+            for (iGridYmul in 0...Std.int( ctx.img.h / (frameSize/config__protoobjectSubframe_inverseIncrement))) {
+                for (iGridXmul in 0...Std.int( ctx.img.w / (frameSize/config__protoobjectSubframe_inverseIncrement))) {
                     // compute center of iterated grid position
-                    var iCenterX: Int = Std.int(iGridXmul * (frameSize/2.0));
-                    var iCenterY: Int = Std.int(iGridYmul * (frameSize/2.0));
+                    var iCenterX: Int = Std.int(iGridXmul * (frameSize/config__protoobjectSubframe_inverseIncrement));
+                    var iCenterY: Int = Std.int(iGridYmul * (frameSize/config__protoobjectSubframe_inverseIncrement));
 
 
                     var stimulusItemsA: Array<{pos:{x:Int,y:Int},id:Int}> = [];
@@ -199,7 +205,7 @@ class PROTOVis2 {
                     
         
                     // * compute protoobject coresponding with the perceived protoobject at the given position
-                    var protoobjectAtCenter: ProtoobjectClassifierItem = ProtoobjectClassifier.classify(stimulusItems,  ctx.prototypeClassifierCtx); // classify samples to get level1 classification
+                    var protoobjectAtCenter: ProtoobjectClassifierItem = ProtoobjectClassifier.classify(stimulusItems, ctx.cycleEpoch, ctx.prototypeClassifierCtx); // classify samples to get level1 classification
                     
                     
                     // store "protoobjectAtCenter"
@@ -211,6 +217,13 @@ class PROTOVis2 {
             {
                 ctx.sinkProtoobjects.reportProtoobjectsOfFrame(protoObjects);
             }
+
+            // output protoobjects as narsese
+            {
+                for (iProtoobject in protoObjects) {
+                    Sys.println('OUTN:<{(${iProtoobject.protoobj.id}*(${Std.int(iProtoobject.center.x/10.0)}*${Std.int(iProtoobject.center.y/10.0)}))} --> detectedprotoobj>. :|:');
+                }
+            }
         }
 
         // b) flush container of level0 samples
@@ -218,7 +231,6 @@ class PROTOVis2 {
     }
 
     // helper to compute convolution
-    // TODO< use it in doCycle() function >
     // /return array of different convolutions
     public static function _helper__calcConv(ctx:Vis2Ctx): Array<Map2dRgb> {
 
@@ -539,7 +551,7 @@ class SaccadeSetUtils {
 
         // * sort by usefulness
         // TODO< better sorting criterion! >
-        inplace.sort((a, b) -> MathHelper2.sign(  Math.exp(-0.08*(ctx.cycleEpoch - b.cycleEpochLastUse)) - Math.exp(-0.08*(ctx.cycleEpoch - a.cycleEpochLastUse))  ));
+        inplace.sort((a, b) -> MathUtils2.sign(  Math.exp(-0.08*(ctx.cycleEpoch - b.cycleEpochLastUse)) - Math.exp(-0.08*(ctx.cycleEpoch - a.cycleEpochLastUse))  ));
 
         // DBG
         for(iv in inplace) {
@@ -664,17 +676,6 @@ class MathHelper2 {
     public static function rngRange2(low:Float, high:Float, rng: Rng0): Float {
         return low + (high-low)*rng.genFloat01();
     }
-
-    // helper which return -1 if value is below 0.0, 0 if its equal and 1 if it is above 0.0
-    public static function sign(v:Float): Int {
-        if (v > 0.0) {
-            return 1;
-        }
-        else if (v < 0.0) {
-            return -1;
-        }
-        return 0;
-    }
 }
 
 
@@ -736,6 +737,9 @@ class SinkProtoobjectsNull implements SinkProtoobjects {
 
 // DONE protobjects< make use of ProtoobjectClassifierCtx when we are done sampling from the frame!!! >
 
+// DONE protoobjects< implement Sink for protoobjects in "EntryVisionManualTest0.hx" to add the protoobjects detected in a frame to the generated latex-report! >
+
+
 // HALFDONE LOW< implement GC  by age, usage, last usage >
 
 
@@ -758,10 +762,5 @@ class SinkProtoobjectsNull implements SinkProtoobjects {
 
 
 // TODO saccades< think of a way to combine saccades to "high level saccades" which we can use to recognize objects >
-
-
-
-// TODO protoobjects< implement Sink for protoobjects in "EntryVisionManualTest0.hx" to add the protoobjects detected in a frame to the generated latex-report! >
-
 
 
