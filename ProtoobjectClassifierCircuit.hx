@@ -52,7 +52,7 @@ class ProtoobjectClassifierCircuit {
             }
         }
 
-        trace('resHdVec=$resHdVec');
+        //trace('resHdVec=$resHdVec'); // DBG
 
         return resHdVec;
     }

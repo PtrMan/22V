@@ -14,6 +14,12 @@ import GaborKernel;
 
 import MyArt_v1;
 
+import PpmExporter;
+
+
+//import RegionProposalGenerator;
+
+
 class PROTOVis2 {
     
 
@@ -107,7 +113,7 @@ class PROTOVis2 {
         var foveaCenterLoc: Vec2 = ctx.foveaCenterProposalStrategy.calcNextProposalPos(ctx.foveaCenterRng, {w:ctx.img.w,h:ctx.img.h}); // generate new center position of fovea
         var candidateSaccadeClasses: Array<Int> = eyeSaccade__exec(candidateSaccadePositions, foveaCenterLoc,  ctx.artClassifier, ctx);
         
-        if (true) { // DBG
+        if (false) { // DBG
             Sys.println('classes of saccade:');
             for (iClass in candidateSaccadeClasses) {
                 Sys.println('   cls=$iClass');
@@ -144,64 +150,96 @@ class PROTOVis2 {
         Sys.println('OUTN:<{(saccid${chosenCandidateSaccade.id}*(${Std.int(foveaCenterLoc.x/10)}*${Std.int(foveaCenterLoc.y/10)}))} --> perceptSac>. :|:'); // create narsese
     }
 
+    // must be called when the processing of a frame begins
+    public static function startFrame(ctx: Vis2Ctx) {
+        if (ctx.frameCounter == 0) {
+            // then we need to set the last frame equal to the current frame!
+            ctx.imgFrameBefore = ctx.img;
+        }
+    }
+
     // must be called when the processing of a frame is done
     public static function endFrame(ctx: Vis2Ctx) {
-        // a) use prototype classifier to classify all objects visible in scene
-        {
-            // collect stimulus items of sub-frame of image
-            // /param center is the absolute position in the frame of the center to collect the level0 classifications from
-            function collectStimulusItemsOfSubFrame(center:{x:Int,y:Int}): Array<{pos:{x:Int,y:Int},id:Int}> {
+        ctx.frameCounter++;
+
+
+
+        // TODO TODO TODO< set this to true and see what it does with a video
+        var enProcessAsStream: Bool = false; // process the input images as a continuos stream?
+
+
+
+        // collect stimulus items of sub-frame of image
+        // /param center is the absolute position in the frame of the center to collect the level0 classifications from
+        function collectStimulusItemsOfSubFrame(center:{x:Int,y:Int}, frameSize: Int): Array<{pos:{x:Int,y:Int},id:Int}> {
+            
+            // helper to compute if a absolute position is inside the sub-frame
+            function isInSubframe(pos: {x:Int,y:Int}) {
+                //var frameSize: Int = Std.int(ctx.img.w/5.0); // TODO< add this as a parameter to ctx!!! >
                 
-                // helper to compute if a absolute position is inside the sub-frame
-                function isInSubframe(pos: {x:Int,y:Int}) {
-                    var frameSize: Int = Std.int(ctx.img.w/5.0); // TODO< add this as a parameter to ctx!!! >
-                    
-                    var diffX: Int = pos.x - center.x;
-                    var diffY: Int = pos.y - center.y;
-                    
-                    var absDiffX: Int = MathUtils2.absInt(diffX);
-                    var absDiffY: Int = MathUtils2.absInt(diffY);
-
-                    return absDiffX <= frameSize/2 && absDiffY <= frameSize/2;
-                }
+                var diffX: Int = pos.x - center.x;
+                var diffY: Int = pos.y - center.y;
                 
-                var samplesInFrame = ctx.level0SampleContainer.filter(iv -> isInSubframe({x:iv.pos.x,y:iv.pos.y}));
-                return samplesInFrame;
+                var absDiffX: Int = MathUtils2.absInt(diffX);
+                var absDiffY: Int = MathUtils2.absInt(diffY);
+
+                return absDiffX <= frameSize/2 && absDiffY <= frameSize/2;
             }
+            
+            var samplesInFrame = ctx.level0SampleContainer.filter(iv -> isInSubframe({x:iv.pos.x,y:iv.pos.y}));
+            return samplesInFrame;
+        }
 
-            // convert from absolute position to relative position relative to frame
-            // IMPLEMENTATION< details need to be syncronized with implementation of collectStimulusItemsOfSubFrame() ! >
-            function mapAbsolutePosToRelative(center:{x:Int,y:Int}, v:{pos:{x:Int,y:Int},id:Int}): {pos:{x:Float,y:Float},id:Int} {
-                var frameSize: Int = Std.int(ctx.img.w/5.0); // TODO< add this as a parameter to ctx!!! >
+        // convert from absolute position to relative position relative to frame
+        // IMPLEMENTATION< details need to be syncronized with implementation of collectStimulusItemsOfSubFrame() ! >
+        function mapAbsolutePosToRelative(center:{x:Int,y:Int}, v:{pos:{x:Int,y:Int},id:Int}, frameSize: Int): {pos:{x:Float,y:Float},id:Int} {
+            //var frameSize: Int = Std.int(ctx.img.w/5.0); // TODO< add this as a parameter to ctx!!! >
 
-                var diffX: Int = v.pos.x - center.x;
-                var diffY: Int = v.pos.y - center.y;
+            var diffX: Int = v.pos.x - center.x;
+            var diffY: Int = v.pos.y - center.y;
 
-                return {pos:{x:diffX / frameSize,y:diffY / frameSize},id:v.id};
-            }
+            return {pos:{x:diffX / frameSize,y:diffY / frameSize},id:v.id};
+        }
 
 
 
-            var frameSize: Int = Std.int(ctx.img.w/5.0);
+        // used to collect the protoObjects for this frame
+        var protoObjects: Array<{center:{x:Int,y:Int},protoobj:ProtoobjectClassifierItem}> = [];
 
-            // used to collect the protoObjects for this frame
-            var protoObjects: Array<{center:{x:Int,y:Int},protoobj:ProtoobjectClassifierItem}> = [];
 
-            var config__protoobjectSubframe_inverseIncrement: Float = 3.0; // config - how many times is the stepsize divided of the framesize for the subframe for protoobjects
+        var config__frameDiff_downsampleFactor: Float = 1.0/6;
+        var config__frameDiff_threshold: Float = 3.0*0.1; // threshold for per pixel check for enough change per pixel  - manhattan distance
 
-            for (iGridYmul in 0...Std.int( ctx.img.h / (frameSize/config__protoobjectSubframe_inverseIncrement))) {
-                for (iGridXmul in 0...Std.int( ctx.img.w / (frameSize/config__protoobjectSubframe_inverseIncrement))) {
-                    // compute center of iterated grid position
-                    var iCenterX: Int = Std.int(iGridXmul * (frameSize/config__protoobjectSubframe_inverseIncrement));
-                    var iCenterY: Int = Std.int(iGridYmul * (frameSize/config__protoobjectSubframe_inverseIncrement));
 
+        var config__typeProtobjectSrc: String = "flow"; // "diff" or "flow"
+
+        // * classify protoobjects based on  - difference of pixels of image
+        if (enProcessAsStream && config__typeProtobjectSrc == "diff") {
+            
+            // downsamples "img" and "imgFrameBefore"
+            var downscaledImg: Map2dRgb = ImageOperators.scale(ctx.img, Std.int(ctx.img.w*config__frameDiff_downsampleFactor));
+            var downscaledImgFrameBefore: Map2dRgb = ImageOperators.scale(ctx.imgFrameBefore, Std.int(ctx.img.w*config__frameDiff_downsampleFactor));
+
+            // * compute proposal regions
+            var proposalRegions: Array<{rect:RectInt,id:Int}> = RegionProposalGenerator.calcRegions(downscaledImg, downscaledImgFrameBefore, config__frameDiff_threshold);
+
+            // * work with proposal regions
+            {
+                // we use the proposals as regions for classification of protoobjects
+                for (iProposalRegion in proposalRegions) {
+                    var centerX: Int = Std.int((iProposalRegion.rect.maxx+iProposalRegion.rect.minx) / 2.0);
+                    var centerY: Int = Std.int((iProposalRegion.rect.maxy+iProposalRegion.rect.miny) / 2.0);
+
+                    var rectSize: Int = iProposalRegion.rect.maxx-iProposalRegion.rect.minx; // we take the width of the "iProposalRegion" as the width and height of the region which we use to classify the proto-object
+                    
+                    
 
                     var stimulusItemsA: Array<{pos:{x:Int,y:Int},id:Int}> = [];
-                    var sampledCenter: {x:Int,y:Int} = {x:iCenterX,y:iCenterY};
-                    stimulusItemsA = collectStimulusItemsOfSubFrame(sampledCenter);
+                    var sampledCenter: {x:Int,y:Int} = {x:centerX,y:centerY};
+                    stimulusItemsA = collectStimulusItemsOfSubFrame(sampledCenter, rectSize);
         
                     // map to relative positions
-                    var stimulusItems: Array<{pos:{x:Float,y:Float},id:Int}> = stimulusItemsA.map(iv -> mapAbsolutePosToRelative(sampledCenter, iv));
+                    var stimulusItems: Array<{pos:{x:Float,y:Float},id:Int}> = stimulusItemsA.map(iv -> mapAbsolutePosToRelative(sampledCenter, iv, rectSize));
                     
         
                     // * compute protoobject coresponding with the perceived protoobject at the given position
@@ -209,9 +247,170 @@ class PROTOVis2 {
                     
                     
                     // store "protoobjectAtCenter"
-                    protoObjects.push({center:{x:iCenterX,y:iCenterY},protoobj:protoobjectAtCenter});
+                    protoObjects.push({center:sampledCenter,protoobj:protoobjectAtCenter});
                 }
             }
+        }
+
+
+        
+        if (enProcessAsStream && config__typeProtobjectSrc == "flow") {
+            // compute protoobjects based on optical flow
+
+            // downsamples "img" and "imgFrameBefore"
+            var downscaledImg: Map2dRgb = ImageOperators.scale(ctx.img, Std.int(ctx.img.w*config__frameDiff_downsampleFactor));
+            var downscaledImgFrameBefore: Map2dRgb = ImageOperators.scale(ctx.imgFrameBefore, Std.int(ctx.img.w*config__frameDiff_downsampleFactor));
+
+
+            // * write out images to disk
+            PpmExporter.export(downscaledImg, "outImgCurr.ppm");
+            PpmExporter.export(downscaledImgFrameBefore, "outImgBefore.ppm");
+
+            // * run optical flow anaysis
+            var opticalFlowRes: {mapMag:Map2dFloat, mapAngle:Map2dFloat} = ProgramRunnerMotion.run("outImgCurr.ppm", "outImgBefore.ppm");
+
+            // * compute x and y directions of flow
+            var dirX: Map2dFloat = new Map2dFloat(opticalFlowRes.mapAngle.w, opticalFlowRes.mapAngle.h);
+            var dirY: Map2dFloat = new Map2dFloat(opticalFlowRes.mapAngle.w, opticalFlowRes.mapAngle.h);
+            for (iy in 0...dirX.h) {
+                for (ix in 0...dirX.w) {
+                    var angle: Float = opticalFlowRes.mapAngle.readAtUnsafe(iy,ix);
+                    var mag: Float = opticalFlowRes.mapMag.readAtUnsafe(iy,ix);
+
+                    var dirXVal: Float = Math.tan(angle);
+                    var dirYVal: Float = 1.0/Math.tan(angle); // cot(angle)
+
+                    dirX.writeAtUnsafe(iy,ix,dirXVal*mag);
+                    dirY.writeAtUnsafe(iy,ix,dirYVal*mag);
+                }
+            }
+
+            // * compute proposal regions based on optical flow
+            {
+                // algorithm: segementate motion into quadrants
+                // TODO LOW< implement better algorithm which works for more complicated environments! >
+
+
+                var config__motionSegmentation_ThresholdMin: Float = 0.09; // minimal threshold on when to 
+                var directioncodeMaps: Array<Map2dBool> = [];
+                for(j in 0...9) {
+                    directioncodeMaps.push(new Map2dBool(dirX.w,dirX.h));
+                }
+
+                for (iy in 0...dirX.h) {
+                    for (ix in 0...dirX.w) {
+                        var dirXVal: Float = dirX.readAtUnsafe(iy,ix);
+                        var dirYVal: Float = dirY.readAtUnsafe(iy,ix);
+
+                        // compute directionCode
+                        var dirCodeX: Int = 0;
+                        if (dirXVal > config__motionSegmentation_ThresholdMin) {
+                            dirCodeX = 1;
+                        }
+                        else if (-dirXVal > config__motionSegmentation_ThresholdMin) {
+                            dirCodeX = -1;
+                        }
+
+                        var dirCodeY: Int = 0;
+                        if (dirYVal > config__motionSegmentation_ThresholdMin) {
+                            dirCodeY = 1;
+                        }
+                        else if (-dirYVal > config__motionSegmentation_ThresholdMin) {
+                            dirCodeY = -1;
+                        }
+
+
+                        var dirCode = (dirCodeX+1) + (dirCodeY+1)*3; // compute directioncode
+
+                        // write out to map
+                        directioncodeMaps[dirCode].writeAtUnsafe(iy,ix,true);
+                    }
+                }
+
+
+                // segment each direction code map
+                for (j in 0...9) {
+
+                    // * compute proposal regions
+                    var proposalRegions: Array<{rect:RectInt,id:Int}> = RegionProposalGenerator.cluster(directioncodeMaps[j]);
+                    
+
+                    // we use the proposals as regions for classification of protoobjects
+                    for (iProposalRegion in proposalRegions) {
+                        var centerX: Int = Std.int((iProposalRegion.rect.maxx+iProposalRegion.rect.minx) / 2.0);
+                        var centerY: Int = Std.int((iProposalRegion.rect.maxy+iProposalRegion.rect.miny) / 2.0);
+
+                        var rectSize: Int = iProposalRegion.rect.maxx-iProposalRegion.rect.minx; // we take the width of the "iProposalRegion" as the width and height of the region which we use to classify the proto-object
+                        
+                        
+
+                        var stimulusItemsA: Array<{pos:{x:Int,y:Int},id:Int}> = [];
+                        var sampledCenter: {x:Int,y:Int} = {x:centerX,y:centerY};
+                        stimulusItemsA = collectStimulusItemsOfSubFrame(sampledCenter, rectSize);
+            
+                        // map to relative positions
+                        var stimulusItems: Array<{pos:{x:Float,y:Float},id:Int}> = stimulusItemsA.map(iv -> mapAbsolutePosToRelative(sampledCenter, iv, rectSize));
+                        
+            
+                        // * compute protoobject coresponding with the perceived protoobject at the given position
+                        var protoobjectAtCenter: ProtoobjectClassifierItem = ProtoobjectClassifier.classify(stimulusItems, ctx.cycleEpoch, ctx.prototypeClassifierCtx); // classify samples to get level1 classification
+                        
+                        
+                        // store "protoobjectAtCenter"
+                        protoObjects.push({center:sampledCenter,protoobj:protoobjectAtCenter});
+                    }
+                }
+            }
+        }
+
+
+
+
+
+        // a) use prototype classifier to classify all objects visible in scene
+        {
+            
+
+            var frameSizeSet: Array<Int> = []; // array of framesizes to check, we sample multiple framesizes for a size invariant classification of proto-objects
+            frameSizeSet.push(Std.int(ctx.img.w/5.0));
+            frameSizeSet.push(Std.int(ctx.img.w/3.0)); // for big protoobjects
+            
+            // commented because it is to small - TODO TECH< we need to find a better way to find regions of small protoobjects! >
+            //frameSizeSet.push(Std.int(ctx.img.w/9.0)); // for small protoobjects
+
+
+
+            // iterate over framesizes
+            for (iFramesize in frameSizeSet) {
+
+                var config__protoobjectSubframe_inverseIncrement: Float = 3.0; // config - how many times is the stepsize divided of the framesize for the subframe for protoobjects
+
+                for (iGridYmul in 0...Std.int( ctx.img.h / (iFramesize/config__protoobjectSubframe_inverseIncrement))) {
+                    for (iGridXmul in 0...Std.int( ctx.img.w / (iFramesize/config__protoobjectSubframe_inverseIncrement))) {
+                        // compute center of iterated grid position
+                        var iCenterX: Int = Std.int(iGridXmul * (iFramesize/config__protoobjectSubframe_inverseIncrement));
+                        var iCenterY: Int = Std.int(iGridYmul * (iFramesize/config__protoobjectSubframe_inverseIncrement));
+
+
+                        var stimulusItemsA: Array<{pos:{x:Int,y:Int},id:Int}> = [];
+                        var sampledCenter: {x:Int,y:Int} = {x:iCenterX,y:iCenterY};
+                        stimulusItemsA = collectStimulusItemsOfSubFrame(sampledCenter, iFramesize);
+                        
+                        // map to relative positions
+                        var stimulusItems: Array<{pos:{x:Float,y:Float},id:Int}> = stimulusItemsA.map(iv -> mapAbsolutePosToRelative(sampledCenter, iv, iFramesize));
+                        
+            
+                        // * compute protoobject coresponding with the perceived protoobject at the given position
+                        var protoobjectAtCenter: ProtoobjectClassifierItem = ProtoobjectClassifier.classify(stimulusItems, ctx.cycleEpoch, ctx.prototypeClassifierCtx); // classify samples to get level1 classification
+                        
+                        
+                        // store "protoobjectAtCenter"
+                        protoObjects.push({center:sampledCenter,protoobj:protoobjectAtCenter});
+                    }
+                }
+            }
+
+
 
             // report "protoObjects" for this frame
             {
@@ -221,13 +420,22 @@ class PROTOVis2 {
             // output protoobjects as narsese
             {
                 for (iProtoobject in protoObjects) {
-                    Sys.println('OUTN:<{(${iProtoobject.protoobj.id}*(${Std.int(iProtoobject.center.x/10.0)}*${Std.int(iProtoobject.center.y/10.0)}))} --> detectedprotoobj>. :|:');
+                    // map evidence counter to confidence
+
+                    // TODO< add more factors into confidence calculations!
+                    var c: Float = 0.99 * (1.0 - Math.exp(-1.0*0.01*iProtoobject.protoobj.evidenceCount));
+
+                    Sys.println('OUTN:<{(protoobjcls${iProtoobject.protoobj.id}*${Std.int(iProtoobject.center.x/10.0)}Q${Std.int(iProtoobject.center.y/10.0)})} --> detectedprotoobj>. {1.0 $c}:|:');
                 }
             }
         }
 
         // b) flush container of level0 samples
         ctx.level0SampleContainer = [];
+
+
+        // copy frame
+        ctx.imgFrameBefore = ctx.img;
     }
 
     // helper to compute convolution
@@ -288,7 +496,7 @@ class PROTOVis2 {
                 iSaccadeRelativePosition, 
                 ctx.img.w*       (ctx.param__SaccadeLevel0__cropRatio*ctx.param__SaccadeLevel0__saccadeRatio)    ));
 
-            Sys.println('DBG: saccade: exec at position=<${absolutePosition.x} ${absolutePosition.y}>');
+            if(0>=1) Sys.println('DBG: saccade: exec at position=<${absolutePosition.x} ${absolutePosition.y}>');
 
 
             // crop at absolute position from environment
@@ -416,6 +624,11 @@ class Vis2Ctx {
 
     public var img: Map2dRgb; // current presented input image
 
+
+    public var imgFrameBefore: Map2dRgb; // presented input image frame before on timestep
+
+
+
     public var convolutionImages: Array<Map2dRgb>; // images of result of convolution, used internally!
 
 
@@ -442,6 +655,7 @@ class Vis2Ctx {
     // running variables
     public var saccadeUniqueIdCounter: Int = 1; // counter used to generate unique ids of saccades, mainly used to "name" a saccade
     public var cycleEpoch: Int = 0; // used to differentiate between different cycles, used for resource allocation
+    public var frameCounter: Int = 0; // used to differentiate between frames
 
     // permutations
     public var permVecX: Array<Int>; // permutation for x vector
@@ -536,7 +750,7 @@ class SaccadeSetUtils {
             }
         }
         
-        Sys.println('DBG: lookupBestSaccade: bestHitSaccadePositionSim=${bestHitSaccadePositionSim}');
+        if (false) Sys.println('DBG: lookupBestSaccade: bestHitSaccadePositionSim=${bestHitSaccadePositionSim}');
         if (bestHitSaccadePositionSim < ctx.saccadePositionSimThreshold ) { // wasn't a good saccade with similar positions found?
             return null;
         }
@@ -729,7 +943,6 @@ class SinkProtoobjectsNull implements SinkProtoobjects {
 
 
 // DONE LOW< add reading of ppm of movie of natural image >
-// DONE LOW< add id to contingency >
 
 // DONE vision: saccade < fix similarity calculation of saccade so it is more sensivitve to the RelRel positions >
 
@@ -762,5 +975,18 @@ class SinkProtoobjectsNull implements SinkProtoobjects {
 
 
 // TODO saccades< think of a way to combine saccades to "high level saccades" which we can use to recognize objects >
+
+
+
+
+
+// TODO LOW 23.07.2022< use RegionProposalGenerator to generate regions which we are using for protoobject generation.
+//                      proposals are generated by the last frame and the current frame and difference between them! >
+
+
+
+// TODO HIGH 1.08.2022 processing: use ProgrammRunnerMotion.hx to compute optical motion
+// TODO HIGH 1.08.2022 processing: use optical motion for proposal generation!!!
+
 
 

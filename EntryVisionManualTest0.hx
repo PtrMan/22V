@@ -6,17 +6,25 @@ import PROTOExportLatex;
 import ProtoobjectClassifier;
 
 // run with
-//    haxe --jvm a.jar  EntryVisionManualTest0.hx --main EntryVisionManualTest0.hx && java -jar ./a.jar
+//    haxe --jvm a.jar  EntryVisionManualTest0.hx --main EntryVisionManualTest0.hx && java -jar ./a.jar consoleIo0
 
 class EntryVisionManualTest0 {
     public static function main() {
 
         // name of the "entry" program to jump to
-        var chosenEntryname: String = "manualTest0";
-        chosenEntryname = "consoleIo0";
+        //var chosenEntryname: String = "manualTest0";
+        //chosenEntryname = "consoleIo0";
+        var chosenEntryname: String = Sys.args()[0];
 
+        if (chosenEntryname == "manualTestDevRunner0") {
+            
+            ProgramRunnerMotion.run("./dataset.test.images.1/pexels-mathias-reding-12624892.ppm", "./dataset.test.images.1/pexels-mathias-reding-12624892.ppm");
 
-        if (chosenEntryname == "manualTest0") {
+            Sys.println("DONE");
+
+        }
+        else if (chosenEntryname == "manualTest0") {
+            
             var ctx: Vis2Ctx = new Vis2Ctx();
             PROTOVis2.defaultInit(ctx);
 
@@ -69,6 +77,7 @@ class EntryVisionManualTest0 {
             }
         }
         else if (chosenEntryname == "consoleIo0") { // program which reads commands from the console and executes them, maybe useful for scripting and connecting it to a reasoner without the use of networking
+            
             var ctx: Vis2Ctx = new Vis2Ctx();
             PROTOVis2.defaultInit(ctx);
 
@@ -110,7 +119,7 @@ class EntryVisionManualTest0 {
     
                         execCmd('!readf ./dataset.test.images.1/$selFilename', ctx);
                         
-                        
+                        PROTOVis2.startFrame(ctx); // send message that a new frame was presented
                         
                         // each debugging visualization displays a few paths
                         //
@@ -184,6 +193,9 @@ class EntryVisionManualTest0 {
             }
 
             printConsoleReport();
+        }
+        else {
+            Sys.println("FATAL ERROR: unknown selected entry!");
         }
     }
 

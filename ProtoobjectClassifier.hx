@@ -8,7 +8,7 @@ class ProtoobjectClassifier {
     // FIXME< "globalTime" should be a Int64! >
     public static function classify(stimulusItems: Array<{pos:{x:Float,y:Float},id:Int}>,  globalTime: Int, ctx: ProtoobjectClassifierCtx) {
         var stimulusAsHdVec: Array<Float> = ProtoobjectClassifierCircuit.calcHdVecOfSet(stimulusItems,  ctx.circuitCtx);
-        trace('DBG: ProtoobjectClassifier.classify(): stimulusVec=$stimulusAsHdVec');
+        //trace('DBG: ProtoobjectClassifier.classify(): stimulusVec=$stimulusAsHdVec');
 
         // * lookup for item in memory which is similar
         var bestItem: ProtoobjectClassifierItem = null;
