@@ -3,6 +3,8 @@
 // file history:
 // 15.07.2022: initial version
 
+import sys.io.Process;
+
 import Vec2;
 import ImageOperators;
 import BRealvectorUtils;
@@ -18,6 +20,9 @@ import PpmExporter;
 
 
 //import RegionProposalGenerator;
+
+
+import PROTOExternalClassThingy0; // for testing
 
 
 class PROTOVis2 {
@@ -165,7 +170,7 @@ class PROTOVis2 {
 
 
         // TODO TODO TODO< set this to true and see what it does with a video
-        var enProcessAsStream: Bool = false; // process the input images as a continuos stream?
+        var enProcessAsStream: Bool = true; // process the input images as a continuos stream?
 
 
 
@@ -270,8 +275,12 @@ class PROTOVis2 {
             var opticalFlowRes: {mapMag:Map2dFloat, mapAngle:Map2dFloat} = ProgramRunnerMotion.run("outImgCurr.ppm", "outImgBefore.ppm");
 
             // * compute x and y directions of flow
-            var dirX: Map2dFloat = new Map2dFloat(opticalFlowRes.mapAngle.w, opticalFlowRes.mapAngle.h);
-            var dirY: Map2dFloat = new Map2dFloat(opticalFlowRes.mapAngle.w, opticalFlowRes.mapAngle.h);
+            var dirX: Map2dFloat;
+            var dirY: Map2dFloat;
+            
+            /* code to translate between angle and magnitude representation to coordinate representation - commented because it's not necessary
+            dirX = new Map2dFloat(opticalFlowRes.mapAngle.w, opticalFlowRes.mapAngle.h);
+            dirY = new Map2dFloat(opticalFlowRes.mapAngle.w, opticalFlowRes.mapAngle.h);
             for (iy in 0...dirX.h) {
                 for (ix in 0...dirX.w) {
                     var angle: Float = opticalFlowRes.mapAngle.readAtUnsafe(iy,ix);
@@ -284,8 +293,14 @@ class PROTOVis2 {
                     dirY.writeAtUnsafe(iy,ix,dirYVal*mag);
                 }
             }
+             */
+            
+            // maps are in reality already the dense flow vectors
+            dirX = opticalFlowRes.mapMag;
+            dirY = opticalFlowRes.mapAngle;
 
             // * compute proposal regions based on optical flow
+            var allProposalRegions: Array<{rect:RectInt,id:Int}> = []; // all proposal regions, used for debugging  ...  ids may be reused, but this is not a problem because id's are not used for debugging
             {
                 // algorithm: segementate motion into quadrants
                 // TODO LOW< implement better algorithm which works for more complicated environments! >
@@ -337,6 +352,8 @@ class PROTOVis2 {
 
                     // we use the proposals as regions for classification of protoobjects
                     for (iProposalRegion in proposalRegions) {
+                        allProposalRegions.push(iProposalRegion); // add for debugging
+                        
                         var centerX: Int = Std.int((iProposalRegion.rect.maxx+iProposalRegion.rect.minx) / 2.0);
                         var centerY: Int = Std.int((iProposalRegion.rect.maxy+iProposalRegion.rect.miny) / 2.0);
 
@@ -359,6 +376,24 @@ class PROTOVis2 {
                         // store "protoobjectAtCenter"
                         protoObjects.push({center:sampledCenter,protoobj:protoobjectAtCenter});
                     }
+                }
+            }
+
+
+            
+            var enDebugProposalRegionsFromMotionToGui: Bool = true;
+            // draw debugging GUI of proposal-regions from motion
+            {
+                if (enDebugProposalRegionsFromMotionToGui) {
+                    // debug proposal-regions to GUI
+    
+                    var s: String = "";
+                    for( iProposalRegion in allProposalRegions) {
+                        var s2: String = 'b ${iProposalRegion.rect.minx} ${iProposalRegion.rect.miny} ${iProposalRegion.rect.maxx} ${iProposalRegion.rect.maxy}';
+                        s = s + s2 + "\n";
+                    }
+    
+                    ExtA.update(s); // send to display with GUI
                 }
             }
         }
@@ -940,6 +975,23 @@ class SinkProtoobjectsNull implements SinkProtoobjects {
 
 
 
+// helper class to execute external scripts
+class ExecProgramsUtils {
+    public static function grab() {
+        var p: Process = new Process('python3 ./pyUtils/GrabCamera.py');
+        p.exitCode(); // wait till the termination of the program
+    }
+
+    // helper to convert the grabbed image from the video camera
+    public static function convertGrabbedImage() {
+        var cmd: String = "convert outCurrentFrameFromCamera.png -compress none outCurrentFrameFromCamera.ppm";
+        var p: Process = new Process(cmd);
+        p.exitCode(); // wait till the termination of the program
+    }
+}
+
+
+
 
 
 // DONE LOW< add reading of ppm of movie of natural image >
@@ -985,8 +1037,9 @@ class SinkProtoobjectsNull implements SinkProtoobjects {
 
 
 
-// TODO HIGH 1.08.2022 processing: use ProgrammRunnerMotion.hx to compute optical motion
-// TODO HIGH 1.08.2022 processing: use optical motion for proposal generation!!!
+// DONE HIGH 1.08.2022 processing: use ProgrammRunnerMotion.hx to compute optical motion
+// HALFDONE HIGH 1.08.2022 processing: use optical motion for proposal generation!!!
+//          TODO< check and tune parameters!!! >
 
 
 

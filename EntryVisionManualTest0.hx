@@ -5,11 +5,22 @@ import PROTOVis2;
 import PROTOExportLatex;
 import ProtoobjectClassifier;
 
+import PROTOExternalClassThingy0; // for testing
+
+
 // run with
 //    haxe --jvm a.jar  EntryVisionManualTest0.hx --main EntryVisionManualTest0.hx && java -jar ./a.jar consoleIo0
 
+//    TERDZIMG     haxe --jvm a.jar  EntryVisionManualTest0.hx --java-lib l.jar --main EntryVisionManualTest0.hx && java -classpath ./l.jar -jar a.jar -jar l.jar consoleIo0
+//                 haxe --jvm a.jar  EntryVisionManualTest0.hx --java-lib l.jar --main EntryVisionManualTest0.hx && java -jar a.jar consoleIo0
+
 class EntryVisionManualTest0 {
     public static function main() {
+        // testing external java
+        ExtA.f0(0.1, 1.2);
+        ExtA.createAndInitWindow();
+        ExtA.update("b 10 20 30 45"); // for testing
+
 
         // name of the "entry" program to jump to
         //var chosenEntryname: String = "manualTest0";
@@ -193,6 +204,30 @@ class EntryVisionManualTest0 {
             }
 
             printConsoleReport();
+        }
+        else if (chosenEntryname == "camera0") {
+
+            var ctx: Vis2Ctx = new Vis2Ctx();
+            PROTOVis2.defaultInit(ctx);
+
+            while (true) {
+                // grab image from camera and convert
+                ExecProgramsUtils.grab();
+                ExecProgramsUtils.convertGrabbedImage();
+
+                // load image from source
+                ctx.img = PpmReader.readPpm("./outCurrentFrameFromCamera.ppm");
+                PROTOVis2.notifyImageUpdated(ctx);
+
+
+                PROTOVis2.startFrame(ctx); // send message that a new frame was presented
+                
+                for(iSubrun in 0...50) {
+                    execCmd("!s 45", ctx);
+                }
+
+                PROTOVis2.endFrame(ctx); // send message that the processing of the frame is done, so it can do work when the frame is completed
+            }
         }
         else {
             Sys.println("FATAL ERROR: unknown selected entry!");
