@@ -29,6 +29,10 @@ class MathUtils2 {
         }
         return 0;
     }
+
+    public static function clampInt(v:Int, a:Int, b:Int): Int {
+        return maxInt(minInt(b, v), a);
+    }
 }
 
 

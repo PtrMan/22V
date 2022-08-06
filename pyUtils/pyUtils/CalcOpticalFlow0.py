@@ -67,26 +67,29 @@ cv.destroyAllWindows()
 flow = cv.calcOpticalFlowFarneback(previousframe_gray, currentframe_gray, 
                                     None,
                                     0.5, 3, 15, 3, 5, 1.2, 0)
-    
+
+
+channelA = flow[..., 0]
+channelB = flow[..., 1]
 # Computes the magnitude and angle of the 2D vectors
-mag, angle = cv.cartToPolar(flow[..., 0], flow[..., 1])
+#channelA, channelB = cv.cartToPolar(flow[..., 0], flow[..., 1])
 
-dimensions = (int(mag.shape[0]/10),int(mag.shape[1]/10))
+dimensions = (int(channelA.shape[0]),int(channelA.shape[1]))
 
-magResized = cv.resize(mag, dimensions, interpolation=cv.INTER_AREA)
-angleResized = cv.resize(angle, dimensions, interpolation=cv.INTER_AREA)
+channelAResized = cv.resize(channelA, dimensions, interpolation=cv.INTER_AREA)
+channelBResized = cv.resize(channelB, dimensions, interpolation=cv.INTER_AREA)
 
 
 
 ## OUTPUT side,  print dimensions and actual values for magnitude pixels and angle pixels
 
-print(str(magResized.shape[0])+" "+str(magResized.shape[1]))
+print(str(channelAResized.shape[0])+" "+str(channelAResized.shape[1]))
 
-for j in range(magResized.shape[0]):
-    for i in range(magResized.shape[1]):
-        print("m "+str(j)+","+str(i)+"="+str(magResized[j][i]))
+for i in range(channelAResized.shape[1]): # loop over y
+    for j in range(channelAResized.shape[0]): # loop over x
+        print("m "+str(j)+","+str(i)+"="+str(channelAResized[j][i]))
 
-for j in range(angleResized.shape[0]):
-    for i in range(angleResized.shape[1]):
-        print("a "+str(j)+","+str(i)+"="+str(angleResized[j][i]))
+for i in range(channelBResized.shape[1]):
+    for j in range(channelBResized.shape[0]):
+        print("a "+str(j)+","+str(i)+"="+str(channelBResized[j][i]))
 

@@ -25,6 +25,9 @@ import PpmExporter;
 import PROTOExternalClassThingy0; // for testing
 
 
+import ParticleBasedGroupingAlgo;
+
+
 class PROTOVis2 {
     
 
@@ -218,6 +221,34 @@ class PROTOVis2 {
 
         var config__typeProtobjectSrc: String = "flow"; // "diff" or "flow"
 
+
+        // helper to add a proposal by classification of a proposal region
+        function addClassificationByProposalRegion(iProposalRegion) {
+            var centerX: Int = Std.int((iProposalRegion.rect.maxx+iProposalRegion.rect.minx) / 2.0);
+            var centerY: Int = Std.int((iProposalRegion.rect.maxy+iProposalRegion.rect.miny) / 2.0);
+
+            var rectSize: Int = iProposalRegion.rect.maxx-iProposalRegion.rect.minx; // we take the width of the "iProposalRegion" as the width and height of the region which we use to classify the proto-object
+            
+            
+
+            var stimulusItemsA: Array<{pos:{x:Int,y:Int},id:Int}> = [];
+            var sampledCenter: {x:Int,y:Int} = {x:centerX,y:centerY};
+            stimulusItemsA = collectStimulusItemsOfSubFrame(sampledCenter, rectSize);
+
+            // map to relative positions
+            var stimulusItems: Array<{pos:{x:Float,y:Float},id:Int}> = stimulusItemsA.map(iv -> mapAbsolutePosToRelative(sampledCenter, iv, rectSize));
+            
+
+            // * compute protoobject coresponding with the perceived protoobject at the given position
+            var protoobjectAtCenter: ProtoobjectClassifierItem = ProtoobjectClassifier.classify(stimulusItems, ctx.cycleEpoch, ctx.prototypeClassifierCtx); // classify samples to get level1 classification
+            
+            
+            // store "protoobjectAtCenter"
+            protoObjects.push({center:sampledCenter,protoobj:protoobjectAtCenter});
+        }
+
+
+
         // * classify protoobjects based on  - difference of pixels of image
         if (enProcessAsStream && config__typeProtobjectSrc == "diff") {
             
@@ -232,27 +263,7 @@ class PROTOVis2 {
             {
                 // we use the proposals as regions for classification of protoobjects
                 for (iProposalRegion in proposalRegions) {
-                    var centerX: Int = Std.int((iProposalRegion.rect.maxx+iProposalRegion.rect.minx) / 2.0);
-                    var centerY: Int = Std.int((iProposalRegion.rect.maxy+iProposalRegion.rect.miny) / 2.0);
-
-                    var rectSize: Int = iProposalRegion.rect.maxx-iProposalRegion.rect.minx; // we take the width of the "iProposalRegion" as the width and height of the region which we use to classify the proto-object
-                    
-                    
-
-                    var stimulusItemsA: Array<{pos:{x:Int,y:Int},id:Int}> = [];
-                    var sampledCenter: {x:Int,y:Int} = {x:centerX,y:centerY};
-                    stimulusItemsA = collectStimulusItemsOfSubFrame(sampledCenter, rectSize);
-        
-                    // map to relative positions
-                    var stimulusItems: Array<{pos:{x:Float,y:Float},id:Int}> = stimulusItemsA.map(iv -> mapAbsolutePosToRelative(sampledCenter, iv, rectSize));
-                    
-        
-                    // * compute protoobject coresponding with the perceived protoobject at the given position
-                    var protoobjectAtCenter: ProtoobjectClassifierItem = ProtoobjectClassifier.classify(stimulusItems, ctx.cycleEpoch, ctx.prototypeClassifierCtx); // classify samples to get level1 classification
-                    
-                    
-                    // store "protoobjectAtCenter"
-                    protoObjects.push({center:sampledCenter,protoobj:protoobjectAtCenter});
+                    addClassificationByProposalRegion(iProposalRegion);
                 }
             }
         }
@@ -301,12 +312,35 @@ class PROTOVis2 {
 
             // * compute proposal regions based on optical flow
             var allProposalRegions: Array<{rect:RectInt,id:Int}> = []; // all proposal regions, used for debugging  ...  ids may be reused, but this is not a problem because id's are not used for debugging
-            {
+            
+            
+            
+            var setting__flowToProposalsAlgorithm: String = "particle"; // "simple" or "particle",  is the algorithm on how to convert flow to "proposal-regions"
+            
+            
+            if (setting__flowToProposalsAlgorithm == "particle") { // particle based tracking is chosen
+                // * run algorithm
+                ctx.particleBasedGrouping.process(dirX, dirY);
+
+                // * convert groups to "region-proposals"
+                for (iCluster in ctx.particleBasedGrouping.outCurrentFrameClusters) {
+                    var iClusterAabb = iCluster.calcAabb(); // calc AABB
+
+                    var iProposalRegion = {rect:new RectInt(Std.int(iClusterAabb.min.x), Std.int(iClusterAabb.min.y), Std.int(iClusterAabb.max.x), Std.int(iClusterAabb.max.y)), id:-1};
+
+                    addClassificationByProposalRegion(iProposalRegion);
+
+                    allProposalRegions.push(iProposalRegion);
+                }
+            }
+
+
+            if (setting__flowToProposalsAlgorithm == "simple") {
                 // algorithm: segementate motion into quadrants
                 // TODO LOW< implement better algorithm which works for more complicated environments! >
 
 
-                var config__motionSegmentation_ThresholdMin: Float = 0.09; // minimal threshold on when to 
+                
                 var directioncodeMaps: Array<Map2dBool> = [];
                 for(j in 0...9) {
                     directioncodeMaps.push(new Map2dBool(dirX.w,dirX.h));
@@ -319,18 +353,18 @@ class PROTOVis2 {
 
                         // compute directionCode
                         var dirCodeX: Int = 0;
-                        if (dirXVal > config__motionSegmentation_ThresholdMin) {
+                        if (dirXVal > ctx.config__motionSegmentation_ThresholdMin) {
                             dirCodeX = 1;
                         }
-                        else if (-dirXVal > config__motionSegmentation_ThresholdMin) {
+                        else if (-dirXVal > ctx.config__motionSegmentation_ThresholdMin) {
                             dirCodeX = -1;
                         }
 
                         var dirCodeY: Int = 0;
-                        if (dirYVal > config__motionSegmentation_ThresholdMin) {
+                        if (dirYVal > ctx.config__motionSegmentation_ThresholdMin) {
                             dirCodeY = 1;
                         }
-                        else if (-dirYVal > config__motionSegmentation_ThresholdMin) {
+                        else if (-dirYVal > ctx.config__motionSegmentation_ThresholdMin) {
                             dirCodeY = -1;
                         }
 
@@ -354,27 +388,7 @@ class PROTOVis2 {
                     for (iProposalRegion in proposalRegions) {
                         allProposalRegions.push(iProposalRegion); // add for debugging
                         
-                        var centerX: Int = Std.int((iProposalRegion.rect.maxx+iProposalRegion.rect.minx) / 2.0);
-                        var centerY: Int = Std.int((iProposalRegion.rect.maxy+iProposalRegion.rect.miny) / 2.0);
-
-                        var rectSize: Int = iProposalRegion.rect.maxx-iProposalRegion.rect.minx; // we take the width of the "iProposalRegion" as the width and height of the region which we use to classify the proto-object
-                        
-                        
-
-                        var stimulusItemsA: Array<{pos:{x:Int,y:Int},id:Int}> = [];
-                        var sampledCenter: {x:Int,y:Int} = {x:centerX,y:centerY};
-                        stimulusItemsA = collectStimulusItemsOfSubFrame(sampledCenter, rectSize);
-            
-                        // map to relative positions
-                        var stimulusItems: Array<{pos:{x:Float,y:Float},id:Int}> = stimulusItemsA.map(iv -> mapAbsolutePosToRelative(sampledCenter, iv, rectSize));
-                        
-            
-                        // * compute protoobject coresponding with the perceived protoobject at the given position
-                        var protoobjectAtCenter: ProtoobjectClassifierItem = ProtoobjectClassifier.classify(stimulusItems, ctx.cycleEpoch, ctx.prototypeClassifierCtx); // classify samples to get level1 classification
-                        
-                        
-                        // store "protoobjectAtCenter"
-                        protoObjects.push({center:sampledCenter,protoobj:protoobjectAtCenter});
+                        addClassificationByProposalRegion(iProposalRegion);
                     }
                 }
             }
@@ -390,6 +404,7 @@ class PROTOVis2 {
                     var s: String = "";
                     for( iProposalRegion in allProposalRegions) {
                         var s2: String = 'b ${iProposalRegion.rect.minx} ${iProposalRegion.rect.miny} ${iProposalRegion.rect.maxx} ${iProposalRegion.rect.maxy}';
+                        trace(s2);
                         s = s + s2 + "\n";
                     }
     
@@ -645,6 +660,9 @@ class Vis2Ctx {
 
 
 
+    public var config__motionSegmentation_ThresholdMin: Float = 1.0; //  0.21; //0.09; // minimal threshold on when to register as motion
+
+
     // reporters
     public var sinkEyeSaccades: SinkEyeSaccades = new SinkEyeSaccadesNull(); // sink for eye saccades reported to, useful for debugging etc.
     public var sinkProtoobjects: SinkProtoobjects = new SinkProtoobjectsNull(); // sink for protoobjects to report to for each frame
@@ -668,6 +686,11 @@ class Vis2Ctx {
 
 
     public var artClassifier: MyArt_v1; // classifier used to classify raw low level stimulus
+
+
+
+
+    public var particleBasedGrouping: ParticleBasedGroupingAlgo = new ParticleBasedGroupingAlgo();
 
 
 
@@ -803,8 +826,10 @@ class SaccadeSetUtils {
         inplace.sort((a, b) -> MathUtils2.sign(  Math.exp(-0.08*(ctx.cycleEpoch - b.cycleEpochLastUse)) - Math.exp(-0.08*(ctx.cycleEpoch - a.cycleEpochLastUse))  ));
 
         // DBG
-        for(iv in inplace) {
-            trace(iv.cycleEpochLastUse);
+        if (false) {
+            for(iv in inplace) {
+                trace(iv.cycleEpochLastUse);
+            }
         }
 
         var inplaceKeep: Array<DecoratedPathWithHdEncoding> = inplace.slice(0, ctx.paramSaccadesNMax);
