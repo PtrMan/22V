@@ -8,6 +8,10 @@
 //        DONE< adapt bottom-up weights! >
 // DONE< implement reset!!! >
 
+import sys.thread.Thread;
+import sys.thread.Lock;
+import sys.thread.Mutex;
+
 import Rng0;
 
 class MyArt_v1 {
@@ -33,10 +37,75 @@ class MyArt_v1 {
 
     public var enDbg: Bool = false;
 
+    // number of worker threads
+    private var nThreads: Int = 8;
+
+    private var entryLocks: Array<Lock> = [];
+    private var exitLocks: Array<Lock> = [];
+
+    private var gatherMutex: Mutex;
+
+    private var p: Array<Float> = null;
+
+    private var gather: Array<{winnerPrototypeIdx:Int,winnerPrototypeTj:Float}> = []; // sued for gathering results
+    
+
     public function new() {
     }
 
+    // encapsulation of inner work for inner thread
+    // /param threadIdx index of the thread, is used to uniformly distribute work
+    private function workerInner(threadIdx: Int) {
+        entryLocks[threadIdx].wait(); // wait here till there is work to do
+        
+        var winnerPrototypeIdx: Int = -1;
+        var winnerPrototypeTj: Float = Math.NEGATIVE_INFINITY;
+        
+        var iProtoIdx: Int = threadIdx;
+        while (iProtoIdx < prototypes.length) {
+            var thisIProtoIdx: Int = iProtoIdx;
+            iProtoIdx+=8;
+
+            var iPrototype: ArtPrototype = prototypes[thisIProtoIdx];
+
+            if (iPrototype.isSurpressed) {
+                continue; // ignore surpressed prototypes for F2 matching!
+            }
+
+            var Tj: Float = vecDot(p, iPrototype.zBottomUp);
+            if (Tj > winnerPrototypeTj) {
+                winnerPrototypeTj = Tj;
+                winnerPrototypeIdx = thisIProtoIdx;
+            }
+        }
+
+        exitLocks[threadIdx].release(); // send signal that the work was done
+
+
+        gatherMutex.acquire();
+        gather.push({winnerPrototypeIdx:winnerPrototypeIdx,winnerPrototypeTj:winnerPrototypeTj});
+        gatherMutex.release();
+    }
+
     public function init(rng: Rng0) {
+        gatherMutex = new Mutex();
+
+        for (iThreadIdx in 0...nThreads) {
+            entryLocks.push(new Lock());
+            exitLocks.push(new Lock());
+        }
+
+        for (iThreadIdx in 0...nThreads) {
+            var t0: Thread = Thread.create(() -> {
+                while (true) {
+                    workerInner(iThreadIdx);
+                    //trace('workerThread idx=$iThreadIdx is done!');
+                }
+            });
+        }
+
+
+
         { // check the ratio between c and d
             var ratio: Float = (c*d) / (1.0-d);
             trace('ratio=$ratio');
@@ -94,8 +163,9 @@ class MyArt_v1 {
     
                 var v: Array<Float> = vecNull(vecWidth);
                 
-                var p: Array<Float> = null;
-        
+                //var p: Array<Float> = null;
+                p = null;
+                
                 // # solver for ART STM equations
                 for(iRound in 0...roundsLtm) {
                     // u_i = v_i / (e + ||v||)             (6)
@@ -126,6 +196,30 @@ class MyArt_v1 {
         
                 // # F2 matching
                 if (iOuterRound == 0) { // we only match F2 if we didn't find yet a best candidate!
+                    // * release all worker threads to do some useful work!
+                    for (iThreadIdx in 0...nThreads) {
+                        entryLocks[iThreadIdx].release();
+                    }
+
+                    // * wait for work of all worker threads!
+                    for (iThreadIdx in 0...nThreads) {
+                        exitLocks[iThreadIdx].wait();
+                    }
+                    
+                    // * gather results
+                    var winnerPrototypeIdx: Int = -1;
+                    var winnerPrototypeTj: Float = Math.NEGATIVE_INFINITY;
+                    {
+                        for (iGather in gather) {
+                            if (iGather.winnerPrototypeTj > winnerPrototypeTj) {
+                                winnerPrototypeIdx = iGather.winnerPrototypeIdx;
+                                winnerPrototypeTj = iGather.winnerPrototypeTj;
+                            }
+                        }
+                    }
+
+
+                    /* commented because it is the old non-parallel code
                     var winnerPrototypeIdx: Int = -1;
                     var winnerPrototypeTj: Float = Math.NEGATIVE_INFINITY;
                     for(iProtoIdx in 0...prototypes.length) {
@@ -141,6 +235,8 @@ class MyArt_v1 {
                             winnerPrototypeIdx = iProtoIdx;
                         }
                     }
+                    */
+
                     
                     if (enDbg) {
                         trace('winner prototype idx=$winnerPrototypeIdx Tj=$winnerPrototypeTj');

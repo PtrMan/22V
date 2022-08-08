@@ -6,7 +6,7 @@ class ParticleBasedGroupingAlgo {
     public var setting__clusterQuadSize: Int = 10; // how many pixels is each clustering-quad wide?
     public var setting__quantizationRanges: Int = 3; // 3 // how many ranges are used for quantification in each positive / negative number direction
 
-    public var setting__velScale: Float = 100.0; // scale of velocity before it's put into buckets for grouping
+    public var setting__velScale: Float = 1.0; // scale of velocity before it's put into buckets for grouping
 
     public var activeParticles: Array<MotionParticle> = [];
 
@@ -66,6 +66,7 @@ class ParticleBasedGroupingAlgo {
                 for (i in 0...thisBitmap.w) {
                     var idx: Int = thisBitmap.calcIdx(j,i);
                     if (thisBitmap.dat[idx].content.length == 0) {
+                        
                         // add particles in this square
                         for (z in 0...10) {
                             var posX: Float = i*setting__clusterQuadSize + Math.random()*setting__clusterQuadSize;

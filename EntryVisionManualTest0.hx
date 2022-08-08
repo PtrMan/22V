@@ -12,7 +12,7 @@ import PROTOExternalClassThingy0; // for testing
 //    haxe --jvm a.jar  EntryVisionManualTest0.hx --main EntryVisionManualTest0.hx && java -jar ./a.jar consoleIo0
 
 //    TERDZIMG     haxe --jvm a.jar  EntryVisionManualTest0.hx --java-lib l.jar --main EntryVisionManualTest0.hx && java -classpath ./l.jar -jar a.jar -jar l.jar consoleIo0
-//                 haxe --jvm a.jar  EntryVisionManualTest0.hx --java-lib l.jar --main EntryVisionManualTest0.hx && java -jar a.jar consoleIo0
+//                 haxe --jvm a.jar  EntryVisionManualTest0.hx --java-lib l.jar --main EntryVisionManualTest0.hx && java -server -jar a.jar consoleIo0
 
 class EntryVisionManualTest0 {
     public static function main() {
@@ -215,13 +215,19 @@ class EntryVisionManualTest0 {
                 ExecProgramsUtils.grab();
                 ExecProgramsUtils.convertGrabbedImage();
 
+
+                //ctx.imgFrameBefore = ctx.img;
                 // load image from source
                 ctx.img = PpmReader.readPpm("./outCurrentFrameFromCamera.ppm");
                 PROTOVis2.notifyImageUpdated(ctx);
 
 
+
                 PROTOVis2.startFrame(ctx); // send message that a new frame was presented
+
                 
+
+
                 for(iSubrun in 0...50) {
                     execCmd("!s 45", ctx);
                 }
