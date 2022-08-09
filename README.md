@@ -12,6 +12,13 @@ see in file EntryVisionManualTest0.hx for up to date information on how to run i
 
 ### dependencies
 
+#### JVM
+
+We recommend running [GraalVM](https://www.graalvm.org/downloads/), because it should be faster than most other JVM's
+
+
+#### Python-libs + utilities
+
 for pyUtils (initial package) <br />
 ```pip install numpy``` <br />
 ```pip install opencv-python``` <br />

@@ -5,19 +5,17 @@ import PROTOVis2;
 import PROTOExportLatex;
 import ProtoobjectClassifier;
 
-import PROTOExternalClassThingy0; // for testing
+import PROTOExternalClassThingy0;
 
 
 // run with
-//    haxe --jvm a.jar  EntryVisionManualTest0.hx --main EntryVisionManualTest0.hx && java -jar ./a.jar consoleIo0
-
-//    TERDZIMG     haxe --jvm a.jar  EntryVisionManualTest0.hx --java-lib l.jar --main EntryVisionManualTest0.hx && java -classpath ./l.jar -jar a.jar -jar l.jar consoleIo0
+//    OLD          haxe --jvm a.jar  EntryVisionManualTest0.hx --java-lib l.jar --main EntryVisionManualTest0.hx && java -classpath ./l.jar -jar a.jar -jar l.jar consoleIo0
 //                 haxe --jvm a.jar  EntryVisionManualTest0.hx --java-lib l.jar --main EntryVisionManualTest0.hx && java -server -jar a.jar consoleIo0
 
 class EntryVisionManualTest0 {
     public static function main() {
         // testing external java
-        ExtA.f0(0.1, 1.2);
+        //ExtA.f0(0.1, 1.2);
         ExtA.createAndInitWindow();
         ExtA.update("b 10 20 30 45"); // for testing
 
@@ -209,6 +207,9 @@ class EntryVisionManualTest0 {
 
             var ctx: Vis2Ctx = new Vis2Ctx();
             PROTOVis2.defaultInit(ctx);
+
+            PROTOVis2.readCfg(ctx);
+
 
             while (true) {
                 // grab image from camera and convert

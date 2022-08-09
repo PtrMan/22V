@@ -26,6 +26,7 @@ import PROTOExternalClassThingy0; // for testing
 
 
 import ParticleBasedGroupingAlgo;
+import CfgParser;
 
 
 class PROTOVis2 {
@@ -83,6 +84,24 @@ class PROTOVis2 {
 
 
         ctx.img = new Map2dRgb(32,32); // init with dummy image
+    }
+
+    // read and parse config file
+    public static function readCfg(ctx: Vis2Ctx) {
+    
+        var cfgFileContent: String = sys.io.File.getContent("./vision.default.cfg");
+        var cfgValues: Map<String, Invariant> = CfgParser.parse(cfgFileContent);
+
+        ctx.artClassifier.a = InvariantUtils.retReal(cfgValues["art.a"]);
+        ctx.artClassifier.b = InvariantUtils.retReal(cfgValues["art.b"]);
+        ctx.artClassifier.c = InvariantUtils.retReal(cfgValues["art.c"]);
+        ctx.artClassifier.d = InvariantUtils.retReal(cfgValues["art.d"]);
+        ctx.artClassifier.e = InvariantUtils.retReal(cfgValues["art.e"]);
+        ctx.artClassifier.vigilance = InvariantUtils.retReal(cfgValues["art.vigilance"]);
+        
+        ctx.artClassifier.sigma = InvariantUtils.retReal(cfgValues["art.sigma"]);
+
+        ctx.particleBasedGrouping.setting__velScale = InvariantUtils.retReal(cfgValues["particleBasedGrouping.velScale"]);
     }
 
     // function to push a new image.
