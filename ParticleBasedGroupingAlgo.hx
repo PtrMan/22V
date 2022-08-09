@@ -117,7 +117,12 @@ class ParticleBasedGroupingAlgo {
 
 
             // ** group in each bucket by distance
+            var iBucketIdx: Int = 0;
             for (iBucket in buckets) {
+                if (iBucketIdx++ == calcBucketIdxByVel(new Vec2(0.0,0.0))) {
+                    continue; // ignore the bucket with no motion!
+                }
+                
                 // algorithm: we put it into a 2d bitmap, then we cluster the regions, then we pull out the particles
                 
                 

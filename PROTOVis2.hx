@@ -102,6 +102,7 @@ class PROTOVis2 {
         ctx.artClassifier.sigma = InvariantUtils.retReal(cfgValues["art.sigma"]);
 
         ctx.particleBasedGrouping.setting__velScale = InvariantUtils.retReal(cfgValues["particleBasedGrouping.velScale"]);
+        ctx.particleBasedGrouping.setting__quantizationRanges = InvariantUtils.retInt(cfgValues["particleBasedGrouping.quantizationRanges"]);
     }
 
     // function to push a new image.

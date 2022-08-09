@@ -54,4 +54,11 @@ class InvariantUtils {
             case _: return 0.0;
         }
     }
+
+    public static function retInt(v: Invariant): Int {
+        switch (v) {
+            case Int(v2): return v2;
+            case _: return 0;
+        }
+    }
 }
