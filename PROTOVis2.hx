@@ -3,6 +3,9 @@
 // file history:
 // 15.07.2022: initial version
 
+import sys.thread.FixedThreadPool;
+//import sys.thread.Mutex;
+import sys.thread.Lock;
 import sys.io.Process;
 
 import Vec2;
@@ -34,6 +37,9 @@ class PROTOVis2 {
 
     // initializes
     public static function defaultInit(ctx: Vis2Ctx) {
+        accuLock0 = new Lock();
+        accuLock0.release();
+        
         var prototypeClassifier__VecLen: Int = 300;
         var prototypeClassifier__gridElementsPerDimension: Int = 6;
         var prototypeClassifier__thresholdCreateNewItem: Float = 0.71; // TODO< tune this! >
@@ -68,10 +74,14 @@ class PROTOVis2 {
         // tuning 
         ctx.artClassifier.vigilance = 0.99;
 
+
+        readCfg(ctx);
         
         ctx.artClassifier.init(ctx.artRng);
 
-
+        ctx.artCtxs.push(new ArtCtx(ctx.artClassifier));
+        ctx.artCtxs.push(new ArtCtx(ctx.artClassifier));
+        ctx.artCtxs.push(new ArtCtx(ctx.artClassifier));
 
 
         // make sure all ids of the point to a valid unique HD-vector
@@ -98,6 +108,10 @@ class PROTOVis2 {
         ctx.artClassifier.d = InvariantUtils.retReal(cfgValues["art.d"]);
         ctx.artClassifier.e = InvariantUtils.retReal(cfgValues["art.e"]);
         ctx.artClassifier.vigilance = InvariantUtils.retReal(cfgValues["art.vigilance"]);
+        ctx.artClassifier.resetAttempts = InvariantUtils.retInt(cfgValues["art.resetAttempts"]);
+        ctx.artClassifier.roundsLtm = InvariantUtils.retInt(cfgValues["art.roundsLtm"]);
+        ctx.artClassifier.M = InvariantUtils.retInt(cfgValues["art.M"]);
+        
         
         ctx.artClassifier.sigma = InvariantUtils.retReal(cfgValues["art.sigma"]);
 
@@ -124,6 +138,8 @@ class PROTOVis2 {
         if (true) { // DBG level 1
             Sys.print('\n\n\n');
         }
+
+        var timeCycleBegin: Float = Sys.time();
 
         if (ctx.cycleEpoch % 231 == 0) { // check for condition to do GC
             SaccadeSetUtils.saccadeSetGc(ctx); // force GC
@@ -176,6 +192,11 @@ class PROTOVis2 {
         // OUTPUT
         Sys.println('OUT: saccade.id=${chosenCandidateSaccade.id} pos=<${Std.int(foveaCenterLoc.x)} ${Std.int(foveaCenterLoc.y)}>'); // output to outside system a message that
         Sys.println('OUTN:<{(saccid${chosenCandidateSaccade.id}*(${Std.int(foveaCenterLoc.x/10)}*${Std.int(foveaCenterLoc.y/10)}))} --> perceptSac>. :|:'); // create narsese
+
+        var timeCycleEnd: Float = Sys.time();
+        var timeCycle: Float = timeCycleEnd - timeCycleBegin;
+        ctx.diagnostics__timeCycleAccu += timeCycle;
+        trace('diagnostics.time.cycle=${ctx.diagnostics__timeCycleAccu}');
     }
 
     // must be called when the processing of a frame begins
@@ -552,6 +573,10 @@ class PROTOVis2 {
         return [convResult0AsRgb,convResult1AsRgb];
     }
 
+    static var threadPool: FixedThreadPool = new FixedThreadPool(3);
+    //static var accuMutex0: Mutex = new Mutex();
+    static var accuLock0: Lock;
+
     // execute eye cassade
     // /return array of classifications for each vertex of the path
     public static function eyeSaccade__exec(saccade:Array<Vec2>, center:Vec2,  artClassifier: MyArt_v1, ctx: Vis2Ctx): Array<Int> {
@@ -561,7 +586,12 @@ class PROTOVis2 {
 
         var pathRecorder: Array<{x:Int,y:Int,class_:Int}> = []; // accumulates the path taken, used for debugging
 
+        var accu: Array<{saccadeVertexIdx:Int,x:Int,y:Int,class_:Int}> = [];
+
+        var iSaccadeVertexIdx: Int = -1;
         for (iSaccadeRelativePosition in saccade) {
+            iSaccadeVertexIdx++;
+            
             var absolutePosition: Vec2 = Vec2.add(center, Vec2.scale(
                 iSaccadeRelativePosition, 
                 ctx.img.w*       (ctx.param__SaccadeLevel0__cropRatio*ctx.param__SaccadeLevel0__saccadeRatio)    ));
@@ -610,19 +640,70 @@ class PROTOVis2 {
             //trace(stimulusVec);
             //trace(classifierInputVec);
 
-            // * classify with learning
-            var classifiedClass: Int = artClassifier.calc(classifierInputVec);
 
-            // remember for path-recorder
-            pathRecorder.push({x:Std.int(absolutePosition.x),y:Std.int(absolutePosition.y),class_:classifiedClass});
 
-            // collect for sampleLevel0container
-            if (enCollectSamplesIntoContainer) {
-                ctx.level0SampleContainer.push({pos:{x:Std.int(absolutePosition.x),y:Std.int(absolutePosition.y)},id:classifiedClass});
+            {
+                var iSaccadeVertexIdx2: Int = iSaccadeVertexIdx; // copy iterator because else it's buggy because of an race condition
+                threadPool.run(() -> {
+                    //trace('a1 ${iSaccadeVertexIdx2}');
+
+                    // * classify with defered learning
+                    var classifiedClass: Int = ctx.artCtxs[iSaccadeVertexIdx2].calc(classifierInputVec);
+                    
+                    //accuMutex0.acquire();
+                    accuLock0.wait();
+                    
+                    //trace('a2');
+                    
+                    accu.push({saccadeVertexIdx:iSaccadeVertexIdx2, x:Std.int(absolutePosition.x),y:Std.int(absolutePosition.y),class_:classifiedClass});
+                    
+                    
+                    //accuMutex0.release();
+                    accuLock0.release();
+                    
+                    //trace('a3');
+                });
             }
+        }
+
+        //trace('enter busy');
+
+        // busy waiting loop
+        // TODO LOW< convert this to non-busy waiting loop!!! >
+        while (accu.length < saccade.length) {
+            Sys.sleep(0.0);
+        }
+
+        //trace('exit busy');
+        
+        // we need to update ART classifier
+        for(iArtCtx in ctx.artCtxs) {
+            iArtCtx.calcUpdate();
+        }
+
+        // we need to sort by index of saccade!
+        accu.sort((a, b) -> MathUtils2.sign(a.saccadeVertexIdx - b.saccadeVertexIdx));
+
+        ///for(iv in accu) {
+        ///    trace(iv.saccadeVertexIdx);
+        ///}
+
+        // now we need to make sense of the path
+        {
+            for(iSaccadeVertexIdx in 0...saccade.length) {
+                var iAccuV = accu[iSaccadeVertexIdx];
+
+                // remember for path-recorder
+                pathRecorder.push({x:iAccuV.x,y:iAccuV.y,class_:iAccuV.class_});
+
+                // collect for sampleLevel0container
+                if (enCollectSamplesIntoContainer) {
+                    ctx.level0SampleContainer.push({pos:{x:iAccuV.x,y:iAccuV.y},id:iAccuV.class_});
+                }
 
 
-            pathClasses.push(classifiedClass);
+                pathClasses.push(iAccuV.class_);
+            }
         }
 
 
@@ -630,6 +711,10 @@ class PROTOVis2 {
         { // report to sink (for debugging etc)
             ctx.sinkEyeSaccades.reportEyeSaccadePath(pathRecorder);
         }
+
+
+        // print diagnostics
+        trace('diagnostics.time.ArtAccu=${ctx.diagnostics__timeArtAccu}');
 
         return pathClasses;
     }
@@ -706,7 +791,7 @@ class Vis2Ctx {
 
 
     public var artClassifier: MyArt_v1; // classifier used to classify raw low level stimulus
-
+    public var artCtxs: Array<ArtCtx> = []; // contexts for art classification in parallel
 
 
 
@@ -744,6 +829,12 @@ class Vis2Ctx {
     public var eyeSaccadeRng: Rng0 = new CryptoRng0("4243"); // rng used for generation of eye saccades
     public var foveaCenterRng: Rng0 = new CryptoRng0("4321"); // rng used for generation of center of fovea
     public var artRng: Rng0 = new CryptoRng0("4332"); // rng used for ART initialization
+
+
+
+    // diagnostics
+    public var diagnostics__timeArtAccu: Float = 0.0; // accumulator for overall time spent for ART
+    public var diagnostics__timeCycleAccu: Float = 0.0; // accumulator for overall time spent in cycle
 
     public function new() {
         var rng: Rng0 = new CryptoRng0("4242");
@@ -1034,6 +1125,10 @@ class ExecProgramsUtils {
         p.exitCode(); // wait till the termination of the program
     }
 }
+
+
+
+
 
 
 

@@ -208,7 +208,7 @@ class EntryVisionManualTest0 {
             var ctx: Vis2Ctx = new Vis2Ctx();
             PROTOVis2.defaultInit(ctx);
 
-            PROTOVis2.readCfg(ctx);
+            
 
 
             while (true) {
@@ -229,7 +229,7 @@ class EntryVisionManualTest0 {
                 
 
 
-                for(iSubrun in 0...50) {
+                for(iSubrun in 0...13) {
                     execCmd("!s 45", ctx);
                 }
 
