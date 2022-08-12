@@ -1123,8 +1123,8 @@ class ExecProgramsUtils {
     }
 
     // helper to convert the grabbed image from the video camera
-    public static function convertGrabbedImage() {
-        var cmd: String = "convert outCurrentFrameFromCamera.png -compress none outCurrentFrameFromCamera.ppm";
+    public static function convertGrabbedImage(srcName: String, destName:String) {
+        var cmd: String = 'convert $srcName -compress none $destName';
         var p: Process = new Process(cmd);
         p.exitCode(); // wait till the termination of the program
     }

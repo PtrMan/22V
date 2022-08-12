@@ -29,7 +29,15 @@ class ProtoobjectClassifierCircuit {
 
                 // bind id
                 {
+                    if (hdVecId == null) {
+                        trace('FATAL: hdVecId is null! by iItem.id=${iItem.id}');
+                        //Sys.exit(1);
+                    }
+                    
                     var b = HdAlgebraUtils.varBind(hdVecId, ctx.varId);
+
+                    
+
                     thisHdVec = BRealvectorUtils.add(thisHdVec, b);
                 }
 

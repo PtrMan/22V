@@ -25,3 +25,8 @@ for pyUtils (initial package) <br />
 
 for dataprocessing <br />
 ```pacman -S imagemagick``` for conversion of images <br />
+
+#### Python OpenAI Gym
+
+```pip install -U gym[all]```
+```python -c 'import gym; gym.make("FrozenLake-v1")'```

@@ -203,7 +203,7 @@ class EntryVisionManualTest0 {
 
             printConsoleReport();
         }
-        else if (chosenEntryname == "camera0") {
+        else if (chosenEntryname == "camera0" || chosenEntryname == "gym0") {
 
             var ctx: Vis2Ctx = new Vis2Ctx();
             PROTOVis2.defaultInit(ctx);
@@ -212,15 +212,24 @@ class EntryVisionManualTest0 {
 
 
             while (true) {
-                // grab image from camera and convert
-                ExecProgramsUtils.grab();
-                ExecProgramsUtils.convertGrabbedImage();
+                if (chosenEntryname == "camera0") {
+                    // grab image from camera and convert
+                    ExecProgramsUtils.grab();
+                    ExecProgramsUtils.convertGrabbedImage("outCurrentFrameFromCamera.png", "outCurrentFrameFromCamera.ppm");
+
+                    ctx.img = PpmReader.readPpm("./outCurrentFrameFromCamera.ppm");
+                    PROTOVis2.notifyImageUpdated(ctx);
+                }
+                else if (chosenEntryname == "gym0") {
+                    // convert current environment image
+                    ExecProgramsUtils.convertGrabbedImage("outCurrentFrameFromEnv.png", "outCurrentFrameFromCamera.ppm");
+
+                    ctx.img = PpmReader.readPpm("./outCurrentFrameFromCamera.ppm");
+                    PROTOVis2.notifyImageUpdated(ctx);
+                }
 
 
-                //ctx.imgFrameBefore = ctx.img;
-                // load image from source
-                ctx.img = PpmReader.readPpm("./outCurrentFrameFromCamera.ppm");
-                PROTOVis2.notifyImageUpdated(ctx);
+
 
 
 
