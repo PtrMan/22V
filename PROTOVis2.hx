@@ -86,7 +86,7 @@ class PROTOVis2 {
 
         // make sure all ids of the point to a valid unique HD-vector
         var rngUsedForUniqueVectors: Rng0 = new CryptoRng0("hd0");
-        for (iId in 0...ctx.artClassifier.prototypes.length) {
+        for (iId in 0...ctx.artClassifier.M) {
             ctx.prototypeClassifierCtx.circuitCtx.idLookupTable.set(iId, BRealvectorUtils.genRandom(ctx.prototypeClassifierCtx.circuitCtx.vecLen, rngUsedForUniqueVectors));
         }
 

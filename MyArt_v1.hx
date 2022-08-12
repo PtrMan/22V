@@ -1,13 +1,5 @@
 // custom implementation of ART-2
 
-// DONE< implement T2->T1 weights and proper voting! >
-//    DONE< add bottom up weights >
-//    DONE< implement proper voting >
-//    DONE< implement proper bottom up voting! >
-//        DONE< apply value of prototype when a valid prototype was selected! >
-//        DONE< adapt bottom-up weights! >
-// DONE< implement reset!!! >
-
 import sys.thread.Thread;
 import sys.thread.Lock;
 import sys.thread.Mutex;
@@ -17,7 +9,7 @@ import Rng0;
 class MyArt_v1 {
     public var a: Float = 2.0; //10.0; // parameter
     public var b: Float = 1.2; // parameter
-    public var c: Float = 0.1; // parameter // 0.1
+    public var c: Float = 0.1; // parameter
     public var d: Float = 0.8; // parameter 0.0 < d < 1.0 // is some kind of learning rate
     
 
@@ -25,13 +17,14 @@ class MyArt_v1 {
     public var sigma: Float = 0.0; // parameter, used for noise surpression
     public var vigilance: Float = 1.0; // parameter in range 0.0 < x < 1.0
 
-    public var vecWidth: Int = 5; // width of vector
+    public var vecWidth: Int = 5; // width of vector // called "N" in paper
 
     public var roundsLtm: Int = 3; // rounds of LTM
 
     public var resetAttempts: Int = 5; // how many times is classification tried with reset till give up?
 
-    public var prototypes: Array<ArtPrototype> = [];
+    //public var prototypes: Array<ArtPrototype> = [];
+    public var z: Map2dFloat = null; // matrix with weights of supression-matrix and prototypes
 
     public var M: Int = 10; // number of prototypes
 
@@ -64,19 +57,43 @@ class MyArt_v1 {
             }
         }
 
+        z = new Map2dFloat(M+vecWidth,M+vecWidth);
 
-        for(im in 0...M) {
-            var createdPrototype = new ArtPrototype(vecNull(vecWidth));
+        
+        //for(im in 0...M) {
+        //    var createdPrototype = new ArtPrototype(vecNull(vecWidth));
+        //
+        //    /*
+        //    // init bottom up weights as described in the paper
+        //    var scale: Float = 1.0 / ((1.0 - d)*Math.sqrt(M));
+        //    createdPrototype.zBottomUp = [];
+        //    for(ii in 0...vecWidth) {
+        //        var v: Float = scale*0.1 + rng.genFloat01()*scale*0.1*0.5;
+        //        createdPrototype.zBottomUp.push(v);
+        //    }*/
 
-            // init bottom up weights as described in the paper
+        //    // init top down weights (as described in the paper)
+        //    var scale: Float = 1.0 / ((1.0 - d)*Math.sqrt(M));
+        //    createdPrototype.v = [];
+        //    for(ii in 0...vecWidth) {
+        //        var v: Float = scale*0.1 + rng.genFloat01()*scale*0.1*0.5;
+        //        createdPrototype.v.push(v);
+        //    }
+        //
+        //    prototypes.push(createdPrototype);
+        //}
+
+
+        // init weights (as described in the paper in chapter XI)
+        {
             var scale: Float = 1.0 / ((1.0 - d)*Math.sqrt(M));
-            createdPrototype.zBottomUp = [];
-            for(ii in 0...vecWidth) {
-                var v: Float = scale*0.1 + rng.genFloat01()*scale*0.1*0.5;
-                createdPrototype.zBottomUp.push(v);
-            }
-
-            prototypes.push(createdPrototype);
+            for (i in 0...M) {
+                for (j in M...M+vecWidth) {
+                    var v: Float = rng.genFloat01()*scale; //scale*0.1 + rng.genFloat01()*scale*0.1*0.5;
+                    //trace('rng $v');
+                    z.writeAtSafe(i,j, v);
+                }
+            }            
         }
     }
 
@@ -106,6 +123,10 @@ class MyArt_v1 {
     }
 
     public static function vecAdd(a: Array<Float>, b: Array<Float>): Array<Float> {
+        if (a.length != b.length) {
+            //throw Exception("ERR");
+        }
+
         var res: Array<Float> = [];
         for(iidx in 0...a.length) {
             var v: Float = a[iidx]+b[iidx];
@@ -114,6 +135,10 @@ class MyArt_v1 {
         return res;
     }
     public static function vecSub(a: Array<Float>, b: Array<Float>): Array<Float> {
+        if (a.length != b.length) {
+            //throw Exception("ERR");
+        }
+
         var res: Array<Float> = [];
         for(iidx in 0...a.length) {
             var v: Float = a[iidx]-b[iidx];
@@ -139,6 +164,10 @@ class MyArt_v1 {
     }
 
     public static function vecDot(a: Array<Float>, b: Array<Float>): Float {
+        if (a.length != b.length) {
+            //throw Exception("ERR");
+        }
+        
         var v = 0.0;
         for(iidx in 0...a.length) {
             v += a[iidx]*b[iidx];
@@ -147,14 +176,15 @@ class MyArt_v1 {
     }
 }
 
+/*
 class ArtPrototype {
     public var v: Array<Float>;
-    public var zBottomUp: Array<Float>; // bottom up weights F1->F2
-    //public var isSurpressed: Bool = false; // is it currently surpressed by reset?
+    ///public var zBottomUp: Array<Float>; // bottom up weights F1->F2
     public function new(v) {
         this.v = v;
     }
 }
+*/
 
 // context for art classification
 // OPTIMIZATION< is just a optimization to get the implementation which uses JVM as a target up to speed >
@@ -205,17 +235,26 @@ class ArtCtx {
         var winnerPrototypeTj: Float = Math.NEGATIVE_INFINITY;
         
         var iProtoIdx: Int = threadIdx;
-        while (iProtoIdx < art.prototypes.length) {
+        while (iProtoIdx < art.M) {
             var thisIProtoIdx: Int = iProtoIdx;
-            iProtoIdx+=8;
+            iProtoIdx+=art.nThreads;
 
-            var iPrototype: ArtPrototype = art.prototypes[thisIProtoIdx];
+            //var iPrototype: ArtPrototype = art.prototypes[thisIProtoIdx];
 
-            if (prototypeIsSurpressed[iProtoIdx]) {
+            if (prototypeIsSurpressed[thisIProtoIdx]) {
                 continue; // ignore surpressed prototypes for F2 matching!
             }
 
-            var Tj: Float = MyArt_v1.vecDot(p, iPrototype.zBottomUp);
+            var dotRes: Float = 0.0;
+            {
+                var j: Int = art.M + thisIProtoIdx;
+                for (i in 0...p.length) {
+                    var zVal: Float = art.z.readAtUnsafe(i,j);
+                    dotRes += (p[i]*zVal);
+                }
+            }
+
+            var Tj: Float = dotRes; //MyArt_v1.vecDot(p, iPrototype.v);///MyArt_v1.vecDot(p, iPrototype.zBottomUp);
             if (Tj > winnerPrototypeTj) {
                 winnerPrototypeTj = Tj;
                 winnerPrototypeIdx = thisIProtoIdx;
@@ -233,7 +272,7 @@ class ArtCtx {
     public function calc(I: Array<Float>): Int {
         // reset surpression by reset
         prototypeIsSurpressed = [];
-        for(idx in 0...art.prototypes.length) {
+        for(idx in 0...art.M) {
             prototypeIsSurpressed.push(false);
         }
 
@@ -261,7 +300,18 @@ class ArtCtx {
                     // p_i = u_i + sum_j ( g(y_i)*z_ji )   (4)
                     p = u; // special case if no category was learned yet!
                     if (selIdx != -1) { // was a candidate selected?
-                        var temp0 = MyArt_v1.vecScale(art.prototypes[selIdx].v, art.d);
+                        // read off of prototype
+                        var prototypeVec: Array<Float> = [];
+                        {
+                            var j: Int = art.M + selIdx;
+                            for (i in 0...p.length) {
+                                var zVal: Float = art.z.readAtSafe(i,j);
+                                prototypeVec.push(zVal);
+                            }
+                        }
+                        //prototypeVec = art.prototypes[selIdx].v;
+
+                        var temp0 = MyArt_v1.vecScale(prototypeVec, art.d);
                         p = MyArt_v1.vecAdd(u, temp0);
                     }
         
@@ -297,12 +347,16 @@ class ArtCtx {
                     var winnerPrototypeIdx: Int = -1;
                     var winnerPrototypeTj: Float = Math.NEGATIVE_INFINITY;
                     {
+                        //trace('');
                         for (iGather in gather) {
+                            //trace('DBG winnerPrototypeIdx=${iGather.winnerPrototypeIdx} Tj=${winnerPrototypeTj}');
+
                             if (iGather.winnerPrototypeTj > winnerPrototypeTj) {
                                 winnerPrototypeIdx = iGather.winnerPrototypeIdx;
                                 winnerPrototypeTj = iGather.winnerPrototypeTj;
                             }
                         }
+                        gather = []; // flush gather
                     }
 
 
@@ -342,8 +396,8 @@ class ArtCtx {
                     // reset when ever an input pattern is active and when the reset condition is true
                     enReset = art.vigilance / (art.e + MyArt_v1.vecNorm2(r)) > 1.0;
                     if (art.enDbg) {
-                        trace('DBG ${1.0 / (art.e + MyArt_v1.vecNorm2(r))}');
-                        trace('enReset=$enReset');
+                        trace('DBG resetVal=${art.vigilance / (art.e + MyArt_v1.vecNorm2(r))}');
+                        trace('DBG -> enReset=$enReset');
                     }
                     
                     // reset mechanism which surpresses a prototype if it doesn't fit
@@ -365,27 +419,27 @@ class ArtCtx {
     public function calcUpdate() {
         // # LTM
         if (art.enLearning) { // only do if learning is enabled
-            { // adapt top-down weights F2->F1
-                var zJ: Array<Float> = art.prototypes[selIdx].v;
-                
-                var temp0 = MyArt_v1.vecScale(u, 1.0 / (1.0 - art.d));
-                temp0 = MyArt_v1.vecSub(temp0, zJ);
-                var delta = MyArt_v1.vecScale(temp0, art.d*(1.0-art.d)); // compute delta to adjust weights
-    
-                zJ = MyArt_v1.vecAdd(zJ, delta); // actually update weights
-                
-                if (art.enDbg) {
-                    trace('zJ=');
-                    for(iv in zJ) {
-                        trace('   $iv');
-                    }
-                }
+            //{ // adapt top-down weights F2->F1
+            //    var zJ: Array<Float> = art.prototypes[selIdx].v;
+            //    
+            //    var temp0 = MyArt_v1.vecScale(u, 1.0 / (1.0 - art.d));
+            //    temp0 = MyArt_v1.vecSub(temp0, zJ);
+            //    var delta = MyArt_v1.vecScale(temp0, art.d*(1.0-art.d)); // compute delta to adjust weights
+            //
+            //    zJ = MyArt_v1.vecAdd(zJ, delta); // actually update weights
+            //    
+            //    if (art.enDbg) {
+            //        trace('zJ=');
+            //        for(iv in zJ) {
+            //           trace('   $iv');
+            //        }
+            //    }
+            //
+            //    art.prototypes[selIdx].v = zJ; // update prototype
+            //}
 
-                art.prototypes[selIdx].v = zJ; // update prototype
-            }
 
-
-
+            /* commented because there are no different weights for bottom-up F1->F2
             { // adapt bottom-up weights F1->F2
                 var ziJ: Array<Float> = art.prototypes[selIdx].zBottomUp;
                 var temp0 = MyArt_v1.vecScale(u, 1.0 / (1.0 - art.d));
@@ -402,6 +456,39 @@ class ArtCtx {
                 }
                 
                 art.prototypes[selIdx].zBottomUp = ziJ; // update prototype
+            }
+            */
+        }
+
+        if (art.enLearning) { // only do if learning is enabled
+            { // adapt weights top-down
+                var factor: Float = art.d*(1.0-art.d);
+
+                for (i in 0...u.length) {
+                    var J: Int = selIdx; // Jth node is active
+                    
+                    if (i == J) // commented because ME is not sure about this
+                    {
+                        var delta: Float = factor*(u[i]/(1.0-art.d) - art.z.readAtSafe(J,i));
+                        var val: Float = art.z.readAtSafe(J,i) + delta;
+                        art.z.writeAtSafe(J,i, val);
+                    }
+                }
+            }
+
+            { // adapt weights bottom-up
+                var factor: Float = art.d*(1.0-art.d);
+
+                for (i in 0...u.length) {
+                    var J: Int = art.M + selIdx; // Jth node is active
+                    
+                    //if (i == J) // commented because ME is not sure about this
+                    {
+                        var delta: Float = factor*(u[i]/(1.0-art.d) - art.z.readAtSafe(i,J));
+                        var val: Float = art.z.readAtSafe(i,J) + delta;
+                        art.z.writeAtSafe(i,J, val);
+                    }
+                }
             }
         }
 
