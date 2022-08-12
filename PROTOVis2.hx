@@ -279,6 +279,8 @@ class PROTOVis2 {
             // map to relative positions
             var stimulusItems: Array<{pos:{x:Float,y:Float},id:Int}> = stimulusItemsA.map(iv -> mapAbsolutePosToRelative(sampledCenter, iv, rectSize));
             
+            // FIXME< this is a hack to remove id's -1 where the ART classifier returned -1, this shouldn't happen and is a bug in ART2 implementation >
+            stimulusItems = stimulusItems.filter(iv -> return iv.id != -1);
 
             // * compute protoobject coresponding with the perceived protoobject at the given position
             var protoobjectAtCenter: ProtoobjectClassifierItem = ProtoobjectClassifier.classify(stimulusItems, ctx.cycleEpoch, ctx.prototypeClassifierCtx); // classify samples to get level1 classification
@@ -490,6 +492,8 @@ class PROTOVis2 {
                         // map to relative positions
                         var stimulusItems: Array<{pos:{x:Float,y:Float},id:Int}> = stimulusItemsA.map(iv -> mapAbsolutePosToRelative(sampledCenter, iv, iFramesize));
                         
+                        // FIXME< this is a hack to remove id's -1 where the ART classifier returned -1, this shouldn't happen and is a bug in ART2 implementation >
+                        stimulusItems = stimulusItems.filter(iv -> return iv.id != -1);
             
                         // * compute protoobject coresponding with the perceived protoobject at the given position
                         var protoobjectAtCenter: ProtoobjectClassifierItem = ProtoobjectClassifier.classify(stimulusItems, ctx.cycleEpoch, ctx.prototypeClassifierCtx); // classify samples to get level1 classification
