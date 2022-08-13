@@ -257,11 +257,6 @@ class PROTOVis2 {
         var protoObjects: Array<{center:{x:Int,y:Int},protoobj:ProtoobjectClassifierItem}> = [];
 
 
-        var config__frameDiff_downsampleFactor: Float = 1.0/6;
-        var config__frameDiff_threshold: Float = 3.0*0.1; // threshold for per pixel check for enough change per pixel  - manhattan distance
-
-
-        var config__typeProtobjectSrc: String = "flow"; // "diff" or "flow"
 
 
         // helper to add a proposal by classification of a proposal region
@@ -294,14 +289,14 @@ class PROTOVis2 {
 
 
         // * classify protoobjects based on  - difference of pixels of image
-        if (enProcessAsStream && config__typeProtobjectSrc == "diff") {
+        if (enProcessAsStream && ctx.config__typeProtobjectSrc == "diff") {
             
             // downsamples "img" and "imgFrameBefore"
-            var downscaledImg: Map2dRgb = ImageOperators.scale(ctx.img, Std.int(ctx.img.w*config__frameDiff_downsampleFactor));
-            var downscaledImgFrameBefore: Map2dRgb = ImageOperators.scale(ctx.imgFrameBefore, Std.int(ctx.img.w*config__frameDiff_downsampleFactor));
+            var downscaledImg: Map2dRgb = ImageOperators.scale(ctx.img, Std.int(ctx.img.w*ctx.config__frameDiff_downsampleFactor));
+            var downscaledImgFrameBefore: Map2dRgb = ImageOperators.scale(ctx.imgFrameBefore, Std.int(ctx.img.w*ctx.config__frameDiff_downsampleFactor));
 
             // * compute proposal regions
-            var proposalRegions: Array<{rect:RectInt,id:Int}> = RegionProposalGenerator.calcRegions(downscaledImg, downscaledImgFrameBefore, config__frameDiff_threshold);
+            var proposalRegions: Array<{rect:RectInt,id:Int}> = RegionProposalGenerator.calcRegions(downscaledImg, downscaledImgFrameBefore, ctx.config__frameDiff_threshold);
 
             // * work with proposal regions
             {
@@ -314,12 +309,12 @@ class PROTOVis2 {
 
 
         
-        if (enProcessAsStream && config__typeProtobjectSrc == "flow") {
+        if (enProcessAsStream && ctx.config__typeProtobjectSrc == "flow") {
             // compute protoobjects based on optical flow
 
             // downsamples "img" and "imgFrameBefore"
-            var downscaledImg: Map2dRgb = ImageOperators.scale(ctx.img, Std.int(ctx.img.w*config__frameDiff_downsampleFactor));
-            var downscaledImgFrameBefore: Map2dRgb = ImageOperators.scale(ctx.imgFrameBefore, Std.int(ctx.img.w*config__frameDiff_downsampleFactor));
+            var downscaledImg: Map2dRgb = ImageOperators.scale(ctx.img, Std.int(ctx.img.w*ctx.config__frameDiff_downsampleFactor));
+            var downscaledImgFrameBefore: Map2dRgb = ImageOperators.scale(ctx.imgFrameBefore, Std.int(ctx.img.w*ctx.config__frameDiff_downsampleFactor));
 
 
             // * write out images to disk
@@ -771,6 +766,13 @@ class Vis2Ctx {
 
 
     public var config__motionSegmentation_ThresholdMin: Float = 1.0; //  0.21; //0.09; // minimal threshold on when to register as motion
+
+
+
+    public var config__typeProtobjectSrc: String = "flow"; // "diff" or "flow"
+    public var config__frameDiff_downsampleFactor: Float = 1.0/6;
+    public var config__frameDiff_threshold: Float = 3.0*0.1; // threshold for per pixel check for enough change per pixel  - manhattan distance
+
 
 
     // reporters
