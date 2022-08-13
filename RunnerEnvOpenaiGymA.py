@@ -1,4 +1,5 @@
 import time
+import shutil
 
 import gym
 from PIL import Image
@@ -15,7 +16,9 @@ while True:
 
         if True:
             im = Image.fromarray(env_screen)
-            im.save("outCurrentFrameFromEnv.png")
+            im.save("outCurrentFrameFromEnv_temp.png")
+
+            shutil.move('outCurrentFrameFromEnv_temp.png', 'outCurrentFrameFromEnv.png') # move file to destination to make it look like an atomic update of the image
 
         if done:
             observation, info = env.reset(return_info=True)

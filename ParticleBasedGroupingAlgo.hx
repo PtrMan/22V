@@ -7,6 +7,7 @@ class ParticleBasedGroupingAlgo {
     public var setting__quantizationRanges: Int = 3; // 3 // how many ranges are used for quantification in each positive / negative number direction
 
     public var setting__velScale: Float = 1.0; // scale of velocity before it's put into buckets for grouping
+    public var setting__velNullThreshold: Float = 0.15; // which velocity (after scaling) is interpreted as "null" velocity. concept is similar to hysteresis in control
 
     public var activeParticles: Array<MotionParticle> = [];
 
@@ -91,16 +92,22 @@ class ParticleBasedGroupingAlgo {
         // * group
         {
 
-
             // ** put each particle in the respectivly bucket by velocity
             function calcBucketIdxByVel(vel: Vec2): Int {
-                var velXInt: Int = Std.int(vel.x * setting__velScale);
-                velXInt = setting__quantizationRanges + MathUtils2.clampInt(velXInt, -setting__quantizationRanges, setting__quantizationRanges);
+                
+                function calcBucketIdxOfSingleDimension(val: Float): Int {
+                    var sign: Int = MathUtils2.sign(vel.x);
 
-                var velYInt: Int = Std.int(vel.y * setting__velScale);
-                velYInt = setting__quantizationRanges + MathUtils2.clampInt(velYInt, -setting__quantizationRanges, setting__quantizationRanges);
+                    var rescaledFloatAbs: Float = Math.abs(vel.x*setting__velScale)-setting__velNullThreshold; // take care of null motion threshold
+                    var velInt: Int = Std.int(rescaledFloatAbs)*sign; // quantize to integers
 
-                var bucketIdx: Int = velXInt + velYInt*(setting__quantizationRanges*2+1);
+                    velInt = MathUtils2.clampInt(velInt, -(setting__quantizationRanges), (setting__quantizationRanges));
+                    return (setting__quantizationRanges)+velInt;
+                }
+                var velXBucket: Int = calcBucketIdxOfSingleDimension(vel.x);
+                var velYBucket: Int = calcBucketIdxOfSingleDimension(vel.y);
+                
+                var bucketIdx: Int = velXBucket + velYBucket*(setting__quantizationRanges*2+1);
                 return bucketIdx;
             }
 
