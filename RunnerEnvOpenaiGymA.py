@@ -4,7 +4,9 @@ import shutil
 import gym
 from PIL import Image
 
-env = gym.make('MountainCar-v0')
+#env = gym.make('MountainCar-v0')
+env = gym.make('LunarLander-v2')
+
 observation, info = env.reset(seed=42, return_info=True)
 
 while True:
@@ -24,6 +26,7 @@ while True:
             observation, info = env.reset(return_info=True)
             break
         
-        time.sleep(0.05)
+        #time.sleep(0.05)
+        time.sleep(0.3) # slow motion because vision is to slow
 
 env.close()
