@@ -22,9 +22,6 @@ import MyArt_v1;
 import PpmExporter;
 
 
-//import RegionProposalGenerator;
-
-
 import PROTOExternalClassThingy0; // for testing
 
 
@@ -258,32 +255,43 @@ class PROTOVis2 {
 
 
 
+        // helper to compute center and extend of "ProposalRegion"
+        function calcCenterAndExtendOfProposalRegion(proposalRegion): {center:{x:Int,y:Int}, extend:Int} {
+            var centerX: Int = Std.int((proposalRegion.rect.maxx+proposalRegion.rect.minx) / 2.0);
+            var centerY: Int = Std.int((proposalRegion.rect.maxy+proposalRegion.rect.miny) / 2.0);
+
+            var extend: Int = proposalRegion.rect.maxx-proposalRegion.rect.minx; // we take the width of the "proposalRegion" as the width and height of the region which we use to classify the proto-object
+
+            return {center:{x:centerX,y:centerY}, extend:extend};
+        }
+
 
         // helper to add a proposal by classification of a proposal region
-        function addClassificationByProposalRegion(iProposalRegion) {
-            var centerX: Int = Std.int((iProposalRegion.rect.maxx+iProposalRegion.rect.minx) / 2.0);
-            var centerY: Int = Std.int((iProposalRegion.rect.maxy+iProposalRegion.rect.miny) / 2.0);
-
-            var rectSize: Int = iProposalRegion.rect.maxx-iProposalRegion.rect.minx; // we take the width of the "iProposalRegion" as the width and height of the region which we use to classify the proto-object
+        function classifyByCenterAndExtend(centerAndExtend, enRevision: Bool = true): ProtoobjectClassifierItem {
             
-            
-
             var stimulusItemsA: Array<{pos:{x:Int,y:Int},id:Int}> = [];
-            var sampledCenter: {x:Int,y:Int} = {x:centerX,y:centerY};
-            stimulusItemsA = collectStimulusItemsOfSubFrame(sampledCenter, rectSize);
+            var sampledCenter: {x:Int,y:Int} = centerAndExtend.center;
+            stimulusItemsA = collectStimulusItemsOfSubFrame(sampledCenter, centerAndExtend.extend);
 
             // map to relative positions
-            var stimulusItems: Array<{pos:{x:Float,y:Float},id:Int}> = stimulusItemsA.map(iv -> mapAbsolutePosToRelative(sampledCenter, iv, rectSize));
+            var stimulusItems: Array<{pos:{x:Float,y:Float},id:Int}> = stimulusItemsA.map(iv -> mapAbsolutePosToRelative(sampledCenter, iv, centerAndExtend.extend));
             
             // FIXME< this is a hack to remove id's -1 where the ART classifier returned -1, this shouldn't happen and is a bug in ART2 implementation >
             stimulusItems = stimulusItems.filter(iv -> return iv.id != -1);
 
             // * compute protoobject coresponding with the perceived protoobject at the given position
-            var protoobjectAtCenter: ProtoobjectClassifierItem = ProtoobjectClassifier.classify(stimulusItems, ctx.cycleEpoch, ctx.prototypeClassifierCtx); // classify samples to get level1 classification
-            
+            var protoobjectAtCenter: ProtoobjectClassifierItem = ProtoobjectClassifier.classify(stimulusItems, ctx.cycleEpoch, ctx.prototypeClassifierCtx, enRevision); // classify samples to get level1 classification
+            return protoobjectAtCenter;
+        }
+
+
+
+        // classify by center+extend and append classification result to "protoObjects" array
+        function classifyByCenterAndExtendAndAppendProtoobj(centerAndExtend) {
+            var protoobjectAtCenter = classifyByCenterAndExtend(centerAndExtend);
             
             // store "protoobjectAtCenter"
-            protoObjects.push({center:sampledCenter,protoobj:protoobjectAtCenter});
+            protoObjects.push({center:centerAndExtend,protoobj:protoobjectAtCenter});
         }
 
 
@@ -302,7 +310,8 @@ class PROTOVis2 {
             {
                 // we use the proposals as regions for classification of protoobjects
                 for (iProposalRegion in proposalRegions) {
-                    addClassificationByProposalRegion(iProposalRegion);
+                    var centerAndExtend = calcCenterAndExtendOfProposalRegion(iProposalRegion);
+                    classifyByCenterAndExtendAndAppendProtoobj(centerAndExtend);
                 }
             }
         }
@@ -358,18 +367,31 @@ class PROTOVis2 {
             
             
             if (setting__flowToProposalsAlgorithm == "particle") { // particle based tracking is chosen
+
+                // helper to process a primary proposal region
+                // definition: a "primary proposal region" is a region which is the direct output of the "particle based grouping" algorithm
+                function processPrimaryProposalRegion(primaryProposalRegion) {
+
+                    // TODO HIGH 13.08.2022< implement algorithm to iterate over possible regions close to the region, scanning for known proto-objects >
+
+                    // for now we directly classify
+                    var centerAndExtend = calcCenterAndExtendOfProposalRegion(primaryProposalRegion);
+                    classifyByCenterAndExtend(centerAndExtend);
+                }
+
+
                 // * run algorithm
                 ctx.particleBasedGrouping.process(dirX, dirY);
 
                 // * convert groups to "region-proposals"
-                for (iCluster in ctx.particleBasedGrouping.outCurrentFrameClusters) {
-                    var iClusterAabb = iCluster.calcAabb(); // calc AABB
+                for (iClusterPrimary in ctx.particleBasedGrouping.outCurrentFrameClusters) {
+                    var iClusterPrimaryAabb = iClusterPrimary.calcAabb(); // calc AABB
 
-                    var iProposalRegion = {rect:new RectInt(Std.int(iClusterAabb.min.x), Std.int(iClusterAabb.min.y), Std.int(iClusterAabb.max.x), Std.int(iClusterAabb.max.y)), id:-1};
+                    var iPrimaryProposalRegion = {rect:new RectInt(Std.int(iClusterPrimaryAabb.min.x), Std.int(iClusterPrimaryAabb.min.y), Std.int(iClusterPrimaryAabb.max.x), Std.int(iClusterPrimaryAabb.max.y)), id:-1};
 
-                    addClassificationByProposalRegion(iProposalRegion);
+                    processPrimaryProposalRegion(iPrimaryProposalRegion);
 
-                    allProposalRegions.push(iProposalRegion);
+                    allProposalRegions.push(iPrimaryProposalRegion);
                 }
             }
 
@@ -427,7 +449,8 @@ class PROTOVis2 {
                     for (iProposalRegion in proposalRegions) {
                         allProposalRegions.push(iProposalRegion); // add for debugging
                         
-                        addClassificationByProposalRegion(iProposalRegion);
+                        var centerAndExtend = calcCenterAndExtendOfProposalRegion(iProposalRegion);
+                        classifyByCenterAndExtendAndAppendProtoobj(centerAndExtend);
                     }
                 }
             }
@@ -483,6 +506,10 @@ class PROTOVis2 {
 
                         var stimulusItemsA: Array<{pos:{x:Int,y:Int},id:Int}> = [];
                         var sampledCenter: {x:Int,y:Int} = {x:iCenterX,y:iCenterY};
+
+                        var sampledCenterAndExtend = {center:{x:iCenterX,y:iCenterY}, extend:iFramesize};
+
+                        /* commented because obsolete
                         stimulusItemsA = collectStimulusItemsOfSubFrame(sampledCenter, iFramesize);
                         
                         // map to relative positions
@@ -497,6 +524,8 @@ class PROTOVis2 {
                         
                         // store "protoobjectAtCenter"
                         protoObjects.push({center:sampledCenter,protoobj:protoobjectAtCenter});
+                        */
+                        classifyByCenterAndExtendAndAppendProtoobj(sampledCenterAndExtend);
                     }
                 }
             }
@@ -544,7 +573,7 @@ class PROTOVis2 {
             var kernel0: Map2dFloat;
             {
                 var phi: Float = 0 * (Math.PI/4);
-                kernel0 = GaborKernel.generateGaborKernel(15, phi /* for testing: 0.4 */, lamdba, 0.0, 1.0);
+                kernel0 = GaborKernel.generateGaborKernel(15, phi, lamdba, 0.0, 1.0);
             }
     
     
@@ -1151,6 +1180,9 @@ class ExecProgramsUtils {
 
 // DONE protoobjects< implement Sink for protoobjects in "EntryVisionManualTest0.hx" to add the protoobjects detected in a frame to the generated latex-report! >
 
+// DONE HIGH 1.08.2022 processing: use ProgrammRunnerMotion.hx to compute optical motion
+// DONE HIGH 1.08.2022 processing: use optical motion for proposal generation!!!
+
 
 // HALFDONE LOW< implement GC  by age, usage, last usage >
 
@@ -1178,15 +1210,6 @@ class ExecProgramsUtils {
 
 
 
-
-// TODO LOW 23.07.2022< use RegionProposalGenerator to generate regions which we are using for protoobject generation.
-//                      proposals are generated by the last frame and the current frame and difference between them! >
-
-
-
-// DONE HIGH 1.08.2022 processing: use ProgrammRunnerMotion.hx to compute optical motion
-// HALFDONE HIGH 1.08.2022 processing: use optical motion for proposal generation!!!
-//          TODO< check and tune parameters!!! >
 
 
 
