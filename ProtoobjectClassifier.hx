@@ -6,7 +6,7 @@ import MathUtils2;
 // classifier to compute proto objects from stimulus
 class ProtoobjectClassifier {
     // FIXME< "globalTime" should be a Int64! >
-    public static function classify(stimulusItems: Array<{pos:{x:Float,y:Float},id:Int}>,  globalTime: Int, ctx: ProtoobjectClassifierCtx, enRevision: Bool = true) {
+    public static function classify(stimulusItems: Array<{pos:{x:Float,y:Float},id:Int}>,  globalTime: Int, ctx: ProtoobjectClassifierCtx, enRevision: Bool = true): {item:ProtoobjectClassifierItem, similarity:Float} {
         var stimulusAsHdVec: Array<Float> = ProtoobjectClassifierCircuit.calcHdVecOfSet(stimulusItems,  ctx.circuitCtx);
         //trace('DBG: ProtoobjectClassifier.classify(): stimulusVec=$stimulusAsHdVec');
 
@@ -35,13 +35,13 @@ class ProtoobjectClassifier {
                 bestItem.evidenceCount = MathUtils2.minInt(bestItem.evidenceCount, 1 << 30); // ensure this doesn't wrap around!
             }
 
-            return bestItem;
+            return {item:bestItem, similarity:bestItemSim};
         }
         else {
             // else we add it as new prototype
             var createdItem: ProtoobjectClassifierItem = new ProtoobjectClassifierItem(stimulusAsHdVec, ctx.prototypeIdCounter++, globalTime);
             ctx.items.push(createdItem);
-            return createdItem;
+            return {item:createdItem, similarity:-1.0};
         }
     }
 

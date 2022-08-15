@@ -267,7 +267,7 @@ class PROTOVis2 {
 
 
         // helper to add a proposal by classification of a proposal region
-        function classifyByCenterAndExtend(centerAndExtend, enRevision: Bool = true): ProtoobjectClassifierItem {
+        function classifyByCenterAndExtend(centerAndExtend, enRevision: Bool = true): {item:ProtoobjectClassifierItem, similarity:Float} {
             
             var stimulusItemsA: Array<{pos:{x:Int,y:Int},id:Int}> = [];
             var sampledCenter: {x:Int,y:Int} = centerAndExtend.center;
@@ -280,7 +280,7 @@ class PROTOVis2 {
             stimulusItems = stimulusItems.filter(iv -> return iv.id != -1);
 
             // * compute protoobject coresponding with the perceived protoobject at the given position
-            var protoobjectAtCenter: ProtoobjectClassifierItem = ProtoobjectClassifier.classify(stimulusItems, ctx.cycleEpoch, ctx.prototypeClassifierCtx, enRevision); // classify samples to get level1 classification
+            var protoobjectAtCenter: {item:ProtoobjectClassifierItem, similarity:Float} = ProtoobjectClassifier.classify(stimulusItems, ctx.cycleEpoch, ctx.prototypeClassifierCtx, enRevision); // classify samples to get level1 classification
             return protoobjectAtCenter;
         }
 
@@ -291,7 +291,7 @@ class PROTOVis2 {
             var protoobjectAtCenter = classifyByCenterAndExtend(centerAndExtend);
             
             // store "protoobjectAtCenter"
-            protoObjects.push({center:centerAndExtend,protoobj:protoobjectAtCenter});
+            protoObjects.push({center:centerAndExtend.center, protoobj:protoobjectAtCenter.item});
         }
 
 
@@ -372,11 +372,63 @@ class PROTOVis2 {
                 // definition: a "primary proposal region" is a region which is the direct output of the "particle based grouping" algorithm
                 function processPrimaryProposalRegion(primaryProposalRegion) {
 
+                    var secondaryProposalGenerationAlgo: String = "simpleCenterA"; // "none" or "simpleCenterA"
+                    var secondaryProposalGenerationAlgo__simpleCenterAVaryExtendPixels: Float = 20.0; // how many pixels are varied?
+                    var secondaryProposalGenerationAlgo__simpleCenterAVary__nSamples: Int = 10; // how many samples are done for each "primary proposal"
+
                     // TODO HIGH 13.08.2022< implement algorithm to iterate over possible regions close to the region, scanning for known proto-objects >
 
-                    // for now we directly classify
-                    var centerAndExtend = calcCenterAndExtendOfProposalRegion(primaryProposalRegion);
-                    classifyByCenterAndExtend(centerAndExtend);
+                    if (secondaryProposalGenerationAlgo == "none") { // no varying of the secondary center at all to find best known class
+                        var primaryProposalcenterAndExtend = calcCenterAndExtendOfProposalRegion(primaryProposalRegion);
+                        classifyByCenterAndExtend(primaryProposalcenterAndExtend);
+                    }
+                    else { // "simpleCenterA"
+
+                        // algorithm:
+                        // a) we vary the center and classify without revision, then we take the best classification (if there is one) and add it,
+                        //    we also classify and add the center, just in case
+                        
+                        var primaryProposalcenterAndExtend = calcCenterAndExtendOfProposalRegion(primaryProposalRegion);
+
+                        // * vary the center
+                        {
+                            var bestSimilarity: Float = -2.0;
+                            var bestCenterAndExtend: {center:{x:Int,y:Int}, extend:Int} = null;
+
+                            for (iSampleIdx in 0...secondaryProposalGenerationAlgo__simpleCenterAVary__nSamples) {
+                                var x01: Float = ctx.miscRng.genFloat01();
+                                var y01: Float = ctx.miscRng.genFloat01();
+    
+    
+                                var xRelFloat: Float = -secondaryProposalGenerationAlgo__simpleCenterAVaryExtendPixels + x01*secondaryProposalGenerationAlgo__simpleCenterAVaryExtendPixels*2.0;
+                                var yRelFloat: Float = -secondaryProposalGenerationAlgo__simpleCenterAVaryExtendPixels + y01*secondaryProposalGenerationAlgo__simpleCenterAVaryExtendPixels*2.0;
+    
+                                var xRelInt: Int = Std.int(xRelFloat);
+                                var yRelInt: Int = Std.int(yRelFloat);
+    
+                                var secondaryProposalcenterAndExtend = {center:{x:primaryProposalcenterAndExtend.center.x+xRelInt,y:primaryProposalcenterAndExtend.center.y+yRelInt}, extend:primaryProposalcenterAndExtend.extend};
+                                
+                                
+                                var secondaryProtoobjectDat: {item:ProtoobjectClassifierItem, similarity:Float} = classifyByCenterAndExtend(secondaryProposalcenterAndExtend, false);
+                                
+                                // decide best one
+                                if (secondaryProtoobjectDat.similarity > bestSimilarity) {
+                                    bestSimilarity = secondaryProtoobjectDat.similarity;
+                                    bestCenterAndExtend = secondaryProposalcenterAndExtend;
+                                }
+                            }
+
+                            // select best sample
+                            if (bestSimilarity > -1.0) { // check to make sure that something was found
+                                // classify and revise at best position it found
+                                classifyByCenterAndExtend(bestCenterAndExtend, true);
+                            }
+                        }
+
+
+                        // * add center and revise
+                        classifyByCenterAndExtend(primaryProposalcenterAndExtend);
+                    }
                 }
 
 
@@ -865,7 +917,7 @@ class Vis2Ctx {
     public var eyeSaccadeRng: Rng0 = new CryptoRng0("4243"); // rng used for generation of eye saccades
     public var foveaCenterRng: Rng0 = new CryptoRng0("4321"); // rng used for generation of center of fovea
     public var artRng: Rng0 = new CryptoRng0("4332"); // rng used for ART initialization
-
+    public var miscRng: Rng0 = new CryptoRng0("32"); // rng for other stuff
 
 
     // diagnostics
