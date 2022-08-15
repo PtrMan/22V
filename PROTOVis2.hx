@@ -52,7 +52,7 @@ class PROTOVis2 {
         ctx.artClassifier = new MyArt_v1();
 
         // TODO< bigger size of image? >
-        ctx.artClassifier.vecWidth = (ctx.foveaWidthPixels*ctx.foveaWidthPixels) * 2; // NOTE< last multiplication is for number of convolutions used for classification >
+        ctx.artClassifier.vecWidth = (ctx.foveaWidthPixels*ctx.foveaWidthPixels) * ctx.config__conv__nConvolutionOrientations; // NOTE< last multiplication is for number of convolutions used for classification >
         
         
         ctx.artClassifier.a = 7.5; //120.0; //0.1; //7.5; //12.5;     // 12.5; //0.2; //12.5; // 7.5  // more contrast?
@@ -613,15 +613,35 @@ class PROTOVis2 {
     // helper to compute convolution
     // /return array of different convolutions
     public static function _helper__calcConv(ctx:Vis2Ctx): Array<Map2dRgb> {
-
-        var convResult0: Map2dFloat;
-        var convResult1: Map2dFloat;
+        var convResArr: Array<Map2dRgb> = [];
 
         { // convolution
             // TODO 11.12.2021 : implemented array of kernels and convolution results and check if the kernels look good!
 
             var lamdba: Float = 1 * (Math.PI/4);
 
+
+            for (iKernelIdx in 0...ctx.config__conv__nConvolutionOrientations) {
+                var kernel0: Map2dFloat;
+                
+                var phiRel: Float = iKernelIdx / (ctx.config__conv__nConvolutionOrientations-1); // relative angle from 0 degrees to 180 degrees
+                var phi: Float = phiRel * ((Math.PI*2)/2);
+                kernel0 = GaborKernel.generateGaborKernel(15, phi, lamdba, 0.0, 1.0);
+        
+        
+                // TODO< compute gray channel and extract then ! >
+                var imgR: Map2dFloat = ImageOperators.extractChannelRed(ctx.img);
+                
+                var convResult0: Map2dFloat = ImageOperators.conv1(imgR, kernel0); // compute convolution
+
+
+                var convResult0AsRgb: Map2dRgb = ImageOperators.convOneChannelToRgb(convResult0); //& convert to RGB because some functions are only implemented for RGB
+
+                convResArr.push(convResult0AsRgb);
+            }
+
+
+            /*
             var kernel0: Map2dFloat;
             {
                 var phi: Float = 0 * (Math.PI/4);
@@ -646,12 +666,15 @@ class PROTOVis2 {
             }
 
             convResult1 = ImageOperators.conv1(imgR, kernel1); // compute convolution
+            */
         }
 
-        var convResult0AsRgb: Map2dRgb = ImageOperators.convOneChannelToRgb(convResult0); //& convert to RGB because some functions are only implemented for RGB
-        var convResult1AsRgb: Map2dRgb = ImageOperators.convOneChannelToRgb(convResult1); //& convert to RGB because some functions are only implemented for RGB
+        //var convResult0AsRgb: Map2dRgb = ImageOperators.convOneChannelToRgb(convResult0); //& convert to RGB because some functions are only implemented for RGB
+        //var convResult1AsRgb: Map2dRgb = ImageOperators.convOneChannelToRgb(convResult1); //& convert to RGB because some functions are only implemented for RGB
 
-        return [convResult0AsRgb,convResult1AsRgb];
+        //return [convResult0AsRgb,convResult1AsRgb];
+
+        return convResArr;
     }
 
     static var threadPool: FixedThreadPool = new FixedThreadPool(3);
@@ -847,6 +870,9 @@ class Vis2Ctx {
 
 
     public var config__motionSegmentation_ThresholdMin: Float = 1.0; //  0.21; //0.09; // minimal threshold on when to register as motion
+
+
+    public var config__conv__nConvolutionOrientations: Int = 3; // how many orientations are used for convolution?
 
 
 
