@@ -148,48 +148,108 @@ class PROTOVis2 {
         }
 
 
-        //ctx.eyeSaccadeRng = new CryptoRng0("4243"); // HACK TESTING< force a new rng for the same eye saccade coordinates >
-        var candidateSaccadePositions: Array<Vec2> = eyeSaccadePathGen__generateRandomEyeSaccade (3, ctx.img.w, ctx.eyeSaccadeRng);
+        // try to extend saccades
+        {
+            if (ctx.miscRng.genFloat01() < 0.2) { // check probability to generate a continuation of a saccade
+                // try to find a saccade for continuation
 
-        // * execute saccade
-        var foveaCenterLoc: Vec2 = ctx.foveaCenterProposalStrategy.calcNextProposalPos(ctx.foveaCenterRng, {w:ctx.img.w,h:ctx.img.h}); // generate new center position of fovea
-        var candidateSaccadeClasses: Array<Int> = eyeSaccade__exec(candidateSaccadePositions, foveaCenterLoc,  ctx.artClassifier, ctx);
-        
-        if (false) { // DBG
-            Sys.println('classes of saccade:');
-            for (iClass in candidateSaccadeClasses) {
-                Sys.println('   cls=$iClass');
+                if (ctx.saccadeSet.length > 0) {
+                    
+                    // select random "entry" position in image
+                    var foveaCenterLoc: Vec2 = ctx.foveaCenterProposalStrategy.calcNextProposalPos(ctx.foveaCenterRng, {w:ctx.img.w,h:ctx.img.h}); // generate new center position of fovea
+                    
+                    // classify at the position
+                    {
+                        var resSingleVertex:  Array<{saccadeVertexIdx:Int,x:Int,y:Int,class_:Int}> = eyeSaccade__exec2([new Vec2(0.0,0.0)], foveaCenterLoc,  ctx, false);
+                        
+                        var classOfFirstVertex: Int = resSingleVertex[0].class_; // we only care about the class of the first vertex of the 'saccade'
+
+                        // filter saccades by class of first vertex
+                        var candidateSaccades3: Array<DecoratedPathWithHdEncoding> = ctx.saccadeSet.filter(iv -> iv.payload.pathSaccade.pathItems[0].class_ == classOfFirstVertex); // filter so it's the saccade which starts with the class
+                        if (candidateSaccades3.length > 0) {
+                            Sys.println("HERE AAAABBBB");
+
+                            // select random candidate
+                            var selIdx: Int = ctx.miscRng.genInt(candidateSaccades3.length);
+                            var selSeedSaccade3: DecoratedPathWithHdEncoding = candidateSaccades3[selIdx];
+
+                            // * we need to check out if the selected saccade matches to the situation in the actual image
+                            var candidateSaccadePositions: Array<Vec2> = selSeedSaccade3.payload.pathSaccade.pathItems.map(iv -> iv.relRelPos);
+                            var candidateSaccadeClasses: Array<Int> = eyeSaccade__exec(candidateSaccadePositions, foveaCenterLoc,  ctx);
+
+                            // TODO TODO TODO TODO
+
+
+
+                            // * create new EyesaccadePath from the classifications
+                            var saccade: EyesaccadePath = new EyesaccadePath();
+                            for (iIdx in 0...candidateSaccadePositions.length) {
+                                var iRelPosition: Vec2 = candidateSaccadePositions[iIdx];
+                                var iClass: Int = candidateSaccadeClasses[iIdx];
+                                saccade.pathItems.push(new PathItem(iRelPosition, iClass));
+                            }
+
+                            // * cast to SaccadeWithHdEncoding
+                            var saccadeWithHdEncoding: PathWithHdEncoding = SaccadeSetUtils.castPathToPathWithHdEncoding(saccade,  ctx);
+
+                            var sim: Null<Float> = SaccadeSetUtils.cmpSaccades(selSeedSaccade3.payload, saccadeWithHdEncoding); // compare candidate to actual saccade which was executed
+                            if (sim != null) { // is it similar enough?
+                                // * try to extend it
+                                // the function also appends the new saccade!
+                                var resSaccade: DecoratedPathWithHdEncoding = SaccadeUtils2.saccadeComputeContinuation(selSeedSaccade3.payload, foveaCenterLoc,  ctx);
+                            }
+                        }
+                    }
+                }
             }
         }
 
-        // * create new EyesaccadePath from the classifications
-        var saccade: EyesaccadePath = new EyesaccadePath();
-        for (iIdx in 0...candidateSaccadePositions.length) {
-            var iRelPosition: Vec2 = candidateSaccadePositions[iIdx];
-            var iClass: Int = candidateSaccadeClasses[iIdx];
-            saccade.pathItems.push(new PathItem(iRelPosition, iClass));
-        }
 
-        // * cast to SaccadeWithHdEncoding
-        var saccadeWithHdEncoding: PathWithHdEncoding = SaccadeSetUtils.castPathToPathWithHdEncoding(saccade,  ctx);
+        { // sample new 3-saccades
+            //ctx.eyeSaccadeRng = new CryptoRng0("4243"); // HACK TESTING< force a new rng for the same eye saccade coordinates >
+            var candidateSaccadePositions: Array<Vec2> = eyeSaccadePathGen__generateRandomEyeSaccade (3, ctx.img.w, ctx.eyeSaccadeRng);
 
-        // * try to find similar existing saccade
-        var bestCandidateExistingSaccade: DecoratedPathWithHdEncoding = SaccadeSetUtils.lookupBestSaccadeByPositionAndVertexClass(saccadeWithHdEncoding,  ctx);
-        
-        var chosenCandidateSaccade: DecoratedPathWithHdEncoding = bestCandidateExistingSaccade; // variable which holds the chosen saccade
-        if (bestCandidateExistingSaccade == null) { // was no best matching eye saccade found?
-            if (true) { // DBG
-                Sys.println('DBG: add saccade');
+            // * execute saccade
+            var foveaCenterLoc: Vec2 = ctx.foveaCenterProposalStrategy.calcNextProposalPos(ctx.foveaCenterRng, {w:ctx.img.w,h:ctx.img.h}); // generate new center position of fovea
+            var candidateSaccadeClasses: Array<Int> = eyeSaccade__exec(candidateSaccadePositions, foveaCenterLoc,  ctx);
+            
+            if (false) { // DBG
+                Sys.println('classes of saccade:');
+                for (iClass in candidateSaccadeClasses) {
+                    Sys.println('   cls=$iClass');
+                }
             }
 
-            chosenCandidateSaccade = SaccadeSetUtils.appendSaccade(saccadeWithHdEncoding,  ctx);
+            // * create new EyesaccadePath from the classifications
+            var saccade: EyesaccadePath = new EyesaccadePath();
+            for (iIdx in 0...candidateSaccadePositions.length) {
+                var iRelPosition: Vec2 = candidateSaccadePositions[iIdx];
+                var iClass: Int = candidateSaccadeClasses[iIdx];
+                saccade.pathItems.push(new PathItem(iRelPosition, iClass));
+            }
+
+            // * cast to SaccadeWithHdEncoding
+            var saccadeWithHdEncoding: PathWithHdEncoding = SaccadeSetUtils.castPathToPathWithHdEncoding(saccade,  ctx);
+
+            // * try to find similar existing saccade
+            var bestCandidateExistingSaccade: DecoratedPathWithHdEncoding = SaccadeSetUtils.lookupBestSaccadeByPositionAndVertexClass(saccadeWithHdEncoding,  ctx);
+            
+            var chosenCandidateSaccade: DecoratedPathWithHdEncoding = bestCandidateExistingSaccade; // variable which holds the chosen saccade
+            if (bestCandidateExistingSaccade == null) { // was no best matching eye saccade found?
+                if (true) { // DBG
+                    Sys.println('DBG: add saccade');
+                }
+
+                chosenCandidateSaccade = SaccadeSetUtils.appendSaccade(saccadeWithHdEncoding, ctx.saccadeSet,  ctx);
+            }
+
+            chosenCandidateSaccade.cycleEpochLastUse = ctx.cycleEpoch; // we need to update this to know which saccade was used last for GC
+
+            // OUTPUT
+            Sys.println('OUT: saccade.id=${chosenCandidateSaccade.id} pos=<${Std.int(foveaCenterLoc.x)} ${Std.int(foveaCenterLoc.y)}>'); // output to outside system a message that
+            Sys.println('OUTN:<{(saccid${chosenCandidateSaccade.id}*(${Std.int(foveaCenterLoc.x/10)}*${Std.int(foveaCenterLoc.y/10)}))} --> perceptSac>. :|:'); // create narsese
         }
 
-        chosenCandidateSaccade.cycleEpochLastUse = ctx.cycleEpoch; // we need to update this to know which saccade was used last for GC
-
-        // OUTPUT
-        Sys.println('OUT: saccade.id=${chosenCandidateSaccade.id} pos=<${Std.int(foveaCenterLoc.x)} ${Std.int(foveaCenterLoc.y)}>'); // output to outside system a message that
-        Sys.println('OUTN:<{(saccid${chosenCandidateSaccade.id}*(${Std.int(foveaCenterLoc.x/10)}*${Std.int(foveaCenterLoc.y/10)}))} --> perceptSac>. :|:'); // create narsese
 
         var timeCycleEnd: Float = Sys.time();
         var timeCycle: Float = timeCycleEnd - timeCycleBegin;
@@ -681,15 +741,8 @@ class PROTOVis2 {
     //static var accuMutex0: Mutex = new Mutex();
     static var accuLock0: Lock;
 
-    // execute eye cassade
-    // /return array of classifications for each vertex of the path
-    public static function eyeSaccade__exec(saccade:Array<Vec2>, center:Vec2,  artClassifier: MyArt_v1, ctx: Vis2Ctx): Array<Int> {
-        var enCollectSamplesIntoContainer: Bool = true; // collect the samples into a level0 container?
-        
-        var pathClasses: Array<Int> = [];
-
-        var pathRecorder: Array<{x:Int,y:Int,class_:Int}> = []; // accumulates the path taken, used for debugging
-
+    // helper for execution of eye saccade
+    public static function eyeSaccade__exec2(saccade:Array<Vec2>, center:Vec2,  ctx: Vis2Ctx, enArtUpdate: Bool = true): Array<{saccadeVertexIdx:Int,x:Int,y:Int,class_:Int}> {
         var accu: Array<{saccadeVertexIdx:Int,x:Int,y:Int,class_:Int}> = [];
 
         var iSaccadeVertexIdx: Int = -1;
@@ -780,10 +833,13 @@ class PROTOVis2 {
 
         //trace('exit busy');
         
-        // we need to update ART classifier
-        for(iArtCtx in ctx.artCtxs) {
-            iArtCtx.calcUpdate();
+        if (enArtUpdate) {
+            // we need to update ART classifier
+            for(iArtCtx in ctx.artCtxs) {
+                iArtCtx.calcUpdate();
+            }
         }
+
 
         // we need to sort by index of saccade!
         accu.sort((a, b) -> MathUtils2.sign(a.saccadeVertexIdx - b.saccadeVertexIdx));
@@ -791,6 +847,20 @@ class PROTOVis2 {
         ///for(iv in accu) {
         ///    trace(iv.saccadeVertexIdx);
         ///}
+
+        return accu;
+    }
+
+    // execute eye cassade
+    // /return array of classifications for each vertex of the path
+    public static function eyeSaccade__exec(saccade:Array<Vec2>, center:Vec2,  ctx: Vis2Ctx): Array<Int> {
+        var enCollectSamplesIntoContainer: Bool = true; // collect the samples into a level0 container?
+        
+        var pathClasses: Array<Int> = [];
+
+        var pathRecorder: Array<{x:Int,y:Int,class_:Int}> = []; // accumulates the path taken, used for debugging
+
+        var accu: Array<{saccadeVertexIdx:Int,x:Int,y:Int,class_:Int}> = eyeSaccade__exec2(saccade, center,  ctx);
 
         // now we need to make sense of the path
         {
@@ -917,6 +987,7 @@ class Vis2Ctx {
     // set is maintained under AIKR
     public var saccadeSet: Array<DecoratedPathWithHdEncoding> = [];
 
+    public var saccadeSet4: Array<DecoratedPathWithHdEncoding> = [];
 
 
 
@@ -962,25 +1033,78 @@ class Vis2Ctx {
 
 // helper which provides helpers to manage saccades
 class SaccadeSetUtils {
-    public static function appendSaccade(saccade: PathWithHdEncoding,  ctx: Vis2Ctx): DecoratedPathWithHdEncoding {
+    public static function appendSaccade(saccade: PathWithHdEncoding, targetSet: Array<DecoratedPathWithHdEncoding>,  ctx: Vis2Ctx): DecoratedPathWithHdEncoding {
         var saccadeUniqueId: Int = ctx.saccadeUniqueIdCounter++;
         var decoratedSaccade: DecoratedPathWithHdEncoding = new DecoratedPathWithHdEncoding(saccade, saccadeUniqueId);
 
         // NOTE< we don't enforce AIK here! >
-        ctx.saccadeSet.push(decoratedSaccade);
+        targetSet.push(decoratedSaccade);
 
-        Sys.println('DBG nSaccadeSet=${ctx.saccadeSet.length}');
+        Sys.println('DBG nSaccadeSet=${targetSet.length}');
 
         return decoratedSaccade;
     }
 
+    // compare two saccades and returns their similarity or if they are not similar at all
+    public static function cmpSaccades(saccade: PathWithHdEncoding, itSaccade: PathWithHdEncoding): Null<Float> {
+        if (saccade.pathSaccade.pathItems.length != itSaccade.pathSaccade.pathItems.length) {
+            return null; // count of the vertices is not the same - can't be similar!
+        }
+        
+        // count how many classifications of vertices coincide
+        var vertexclassCoincideCnt: Int = 0;
+        for (iVertexIdx in 0...saccade.pathSaccade.pathItems.length) {
+            if (saccade.pathSaccade.pathItems[iVertexIdx].class_ == itSaccade.pathSaccade.pathItems[iVertexIdx].class_) {
+                vertexclassCoincideCnt++;
+            }
+        }
+
+
+        // lookup minimal count of overlapping classes of vertices that we accept it as a viable candidate
+        // TODO REFACTOR LOW< do we get away here with just a simple calculation like the the else branch??? >
+        var minimalVertexclassCoincide: Int = 0;
+        if (saccade.pathSaccade.pathItems.length == 2) {
+            minimalVertexclassCoincide = 1;
+        }
+        else if (saccade.pathSaccade.pathItems.length == 3) {
+            minimalVertexclassCoincide = 2;
+        }
+        else if (saccade.pathSaccade.pathItems.length == 4) {
+            minimalVertexclassCoincide = 2;
+        }
+        else {
+            minimalVertexclassCoincide = Std.int(saccade.pathSaccade.pathItems.length * 2 / 3);
+        }
+
+        if(false) {
+            minimalVertexclassCoincide = saccade.pathSaccade.pathItems.length; // HACk< it's probably better if all classes match up! >
+        }
+
+
+        // reject by criterion of overlapping classes of vertices
+        if (vertexclassCoincideCnt < minimalVertexclassCoincide) {
+            return null; // to little overlap!
+        }
+
+        var positionVecSim: Float = BRealvectorUtils.calcCosineSim(itSaccade.vecPositions, saccade.vecPositions);
+        return positionVecSim;
+    }
+
     public static function lookupBestSaccadeByPositionAndVertexClass(saccade: PathWithHdEncoding,  ctx: Vis2Ctx): DecoratedPathWithHdEncoding {
+        return lookupBestSaccadeByPositionAndVertexClass2(saccade, ctx.saccadeSet,   ctx);
+    }
+    
+
+    public static function lookupBestSaccadeByPositionAndVertexClass2(saccade: PathWithHdEncoding, saccadeSet: Array<DecoratedPathWithHdEncoding>,  ctx: Vis2Ctx): DecoratedPathWithHdEncoding {
         var bestHitSaccadePositionSim: Float = -1.0;
         var bestHitSaccade: DecoratedPathWithHdEncoding = null;
 
-        for (itSaccadeWithPayload in ctx.saccadeSet) {
+        for (itSaccadeWithPayload in saccadeSet) {
             var itSaccade: PathWithHdEncoding = itSaccadeWithPayload.payload;
             
+            
+
+            /*
             if (saccade.pathSaccade.pathItems.length != itSaccade.pathSaccade.pathItems.length) {
                 continue; // iterated doesn't matter if the count of vertices is not the same!
             }
@@ -1007,7 +1131,7 @@ class SaccadeSetUtils {
                 minimalVertexclassCoincide = 2;
             }
             else {
-                minimalVertexclassCoincide = Std.int(saccade.pathSaccade.pathItems.length * 3 / 2);
+                minimalVertexclassCoincide = Std.int(saccade.pathSaccade.pathItems.length * 2 / 3);
             }
 
             if(false) {
@@ -1029,6 +1153,16 @@ class SaccadeSetUtils {
 
             if (positionVecSim > bestHitSaccadePositionSim) {
                 bestHitSaccadePositionSim = positionVecSim;
+                bestHitSaccade = itSaccadeWithPayload;
+            }
+            */
+
+            var sim: Null<Float> = cmpSaccades(saccade, itSaccade);
+            if (sim == null) { // isn't similar at all?
+                continue;
+            }
+            if (sim > bestHitSaccadePositionSim) {
+                bestHitSaccadePositionSim = sim;
                 bestHitSaccade = itSaccadeWithPayload;
             }
         }
@@ -1095,6 +1229,135 @@ class SaccadeSetUtils {
         //trace(vecPositions); // DBG
 
         return new PathWithHdEncoding(vecPositions, eyesaccadePath);
+    }
+}
+
+// helper which provides other helpers
+class SaccadeUtils2 {
+    // function to compute a random offset
+    public static function calcOffset(ctx: Vis2Ctx): Vec2 {
+        var relX: Float = MathUtils2.convTo01Range(ctx.eyeSaccadeRng.genFloat01(), -10.0, 10.0);
+        var relY: Float = MathUtils2.convTo01Range(ctx.eyeSaccadeRng.genFloat01(), -10.0, 10.0);
+        return new Vec2(relX, relY);
+    }
+
+    // executes saccade and creates a new saccade by adding one vertex
+    // /param seedPath the actual expected path of saccade which will be compared
+    // /param center center of executed eye saccade
+    public static function saccadeComputeContinuation(seedPath: PathWithHdEncoding, center:Vec2,  ctx: Vis2Ctx): DecoratedPathWithHdEncoding {
+        // extract relative relative positions
+        var verticesRelRelPos: Array<Vec2> = seedPath.pathSaccade.pathItems.map(iv -> iv.relRelPos);
+
+
+        // helper to compute the path with is tried
+        function calcTriedPath(continuationRel: Vec2): Array<Vec2> {
+            var x: Array<Vec2> = verticesRelRelPos.copy();
+            x.push(continuationRel); // add relative for continuation
+
+            // build contination of the path without the first vertex
+            var y = x.slice(1); // remove first vertex
+            y[0] = new Vec2(0.0,0.0); // set first vertex to null vector because this is the definition of the relative positions of a path
+
+            return y;
+        }        
+
+
+
+
+        // algorithm: we must
+        // * execute seed path
+        // * compare result
+        // * extend it with one vertex
+        //    * add the new saccade if no similar one exists
+
+        
+        var resFirstPath: Array<{saccadeVertexIdx:Int,x:Int,y:Int,class_:Int}> = PROTOVis2.eyeSaccade__exec2(verticesRelRelPos, center,  ctx, false);
+
+        for (iIdx in 0...resFirstPath.length) {
+            // compare expected class to observed class
+            if (resFirstPath[iIdx].class_ != seedPath.pathSaccade.pathItems[iIdx].class_) {
+                return null; // give up
+            }
+        }
+
+        // generate and test continuation
+        var usedContinuationOffset: Vec2 = calcOffset(ctx);
+
+
+        // compute the path of a possible continuation
+        var triedPath: Array<Vec2> = calcTriedPath(usedContinuationOffset);
+
+
+        // execute tried path
+
+        // * cast to SaccadeWithHdEncoding
+        
+        var resContinuationPath: Array<{saccadeVertexIdx:Int,x:Int,y:Int,class_:Int}>;
+        {
+            resContinuationPath = PROTOVis2.eyeSaccade__exec2(triedPath, Vec2.add(center, verticesRelRelPos[1]),  ctx, false);
+        }
+
+
+        /* commented because not necessary
+        // make sense of result of "resContinuationPath"
+
+        // search for best match which is sufficiently similar
+        var bestMatchOfContinuationPath: DecoratedPathWithHdEncoding = null;
+        {
+            // we need to merge class and relative position
+            var eyesaccadePath: EyesaccadePath = new EyesaccadePath();
+            for (iIdx in 0...resContinuationPath.length) {
+                var iRelRelPos: Vec2 = triedPath[iIdx];
+                var iClass_: Int = resContinuationPath[iIdx].class_;
+                eyesaccadePath.pathItems.push(new PathItem(iRelRelPos, iClass_));
+            }
+
+            var saccadeWithHdEncoding: PathWithHdEncoding = SaccadeSetUtils.castPathToPathWithHdEncoding(eyesaccadePath,  ctx);
+            bestMatchOfContinuationPath = SaccadeSetUtils.lookupBestSaccadeByPositionAndVertexClass2(saccadeWithHdEncoding, ctx.saccadeSet,  ctx);
+        }
+
+        // create new full saccade if there wasn't a sufficiently similar full saccade
+        {
+            if (bestMatchOfContinuationPath != null) {
+                // TODO
+            }
+        }
+        */
+
+
+
+
+
+
+
+        // build full saccade and check if another one already exists, create new one if not
+        {
+            // we need to merge class and relative position
+            var eyesaccadePath: EyesaccadePath = new EyesaccadePath();
+            for (iItem in seedPath.pathSaccade.pathItems) {
+                eyesaccadePath.pathItems.push(iItem);
+            }
+
+            {
+                var lastVertexOffset: Vec2 = usedContinuationOffset;
+                var lastVertexClass: Int = resContinuationPath[resContinuationPath.length-1].class_;
+                eyesaccadePath.pathItems.push(new PathItem(lastVertexOffset, lastVertexClass));
+            }
+
+            var saccadeWithHdEncoding: PathWithHdEncoding = SaccadeSetUtils.castPathToPathWithHdEncoding(eyesaccadePath,  ctx);
+            var bestMatchOfFullPath: DecoratedPathWithHdEncoding = SaccadeSetUtils.lookupBestSaccadeByPositionAndVertexClass2(saccadeWithHdEncoding, ctx.saccadeSet4,  ctx);
+            if (bestMatchOfFullPath == null) { // was no full path found?
+                // create a new one
+
+                // * cast to SaccadeWithHdEncoding
+                var saccadeWithHdEncoding: PathWithHdEncoding = SaccadeSetUtils.castPathToPathWithHdEncoding(eyesaccadePath,  ctx);
+
+                var storedCandidateSaccade: DecoratedPathWithHdEncoding  = SaccadeSetUtils.appendSaccade(saccadeWithHdEncoding, ctx.saccadeSet4,  ctx);
+                storedCandidateSaccade.cycleEpochLastUse = ctx.cycleEpoch; // we need to update this to know which saccade was used last for GC
+                return storedCandidateSaccade;
+            }
+            return bestMatchOfFullPath;
+        }
     }
 }
 
