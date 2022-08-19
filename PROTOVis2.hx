@@ -140,7 +140,9 @@ class PROTOVis2 {
         var timeCycleBegin: Float = Sys.time();
 
         if (ctx.cycleEpoch % 231 == 0) { // check for condition to do GC
-            SaccadeSetUtils.saccadeSetGc(ctx); // force GC
+            // force GC
+            ctx.saccadeSet = SaccadeSetUtils.saccadeGc(ctx.saccadeSet,   ctx);
+            ctx.saccadeSet4 = SaccadeSetUtils.saccadeGc(ctx.saccadeSet4,   ctx);
         }
 
         if (ctx.cycleEpoch % 9481 == 0) {
@@ -167,7 +169,6 @@ class PROTOVis2 {
                         // filter saccades by class of first vertex
                         var candidateSaccades3: Array<DecoratedPathWithHdEncoding> = ctx.saccadeSet.filter(iv -> iv.payload.pathSaccade.pathItems[0].class_ == classOfFirstVertex); // filter so it's the saccade which starts with the class
                         if (candidateSaccades3.length > 0) {
-                            Sys.println("HERE AAAABBBB");
 
                             // select random candidate
                             var selIdx: Int = ctx.miscRng.genInt(candidateSaccades3.length);
@@ -176,8 +177,6 @@ class PROTOVis2 {
                             // * we need to check out if the selected saccade matches to the situation in the actual image
                             var candidateSaccadePositions: Array<Vec2> = selSeedSaccade3.payload.pathSaccade.pathItems.map(iv -> iv.relRelPos);
                             var candidateSaccadeClasses: Array<Int> = eyeSaccade__exec(candidateSaccadePositions, foveaCenterLoc,  ctx);
-
-                            // TODO TODO TODO TODO
 
 
 
@@ -1177,8 +1176,8 @@ class SaccadeSetUtils {
 
     // used to keep memory under AIK
     // this has to be called from time to time by the main-loop
-    public static function saccadeSetGc(ctx: Vis2Ctx) {
-        var inplace: Array<DecoratedPathWithHdEncoding> = ctx.saccadeSet.copy();
+    public static function saccadeGc(saccadeSet: Array<DecoratedPathWithHdEncoding>,   ctx: Vis2Ctx): Array<DecoratedPathWithHdEncoding> {
+        var inplace: Array<DecoratedPathWithHdEncoding> = saccadeSet.copy();
 
         // * sort by usefulness
         // TODO< better sorting criterion! >
@@ -1193,9 +1192,11 @@ class SaccadeSetUtils {
 
         var inplaceKeep: Array<DecoratedPathWithHdEncoding> = inplace.slice(0, ctx.paramSaccadesNMax);
 
-        trace('GC lenbefore=${ctx.saccadeSet.length}');
-        ctx.saccadeSet = inplaceKeep; // keep under AIK
-        trace('GC lenafter=${ctx.saccadeSet.length}');
+        trace('GC lenbefore=${saccadeSet.length}');
+        saccadeSet = inplaceKeep; // keep under AIK
+        trace('GC lenafter=${saccadeSet.length}');
+
+        return saccadeSet;
     }
 
 
@@ -1546,10 +1547,8 @@ class ExecProgramsUtils {
 
 
 
-// TODO saccades< think of a way to combine saccades to "high level saccades" which we can use to recognize objects >
-
-
-
+// HALFDONE saccades< think of a way to combine saccades to "high level saccades" which we can use to recognize objects >
+//    ISSUE< how do we rank longer saccades for forgetting? >
 
 
 
