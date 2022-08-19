@@ -30,4 +30,3 @@ for dataprocessing <br />
 
 ```pip install -U gym[all]```
 ```python -c 'import gym; gym.make("FrozenLake-v1")'```
-
