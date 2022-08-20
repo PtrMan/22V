@@ -79,6 +79,7 @@ class PROTOVis2 {
         ctx.artCtxs.push(new ArtCtx(ctx.artClassifier));
         ctx.artCtxs.push(new ArtCtx(ctx.artClassifier));
         ctx.artCtxs.push(new ArtCtx(ctx.artClassifier));
+        ctx.artCtxs.push(new ArtCtx(ctx.artClassifier));
 
 
         // make sure all ids of the point to a valid unique HD-vector
@@ -141,8 +142,7 @@ class PROTOVis2 {
 
         if (ctx.cycleEpoch % 231 == 0) { // check for condition to do GC
             // force GC
-            ctx.saccadeSet = SaccadeSetUtils.saccadeGc(ctx.saccadeSet,   ctx);
-            ctx.saccadeSet4 = SaccadeSetUtils.saccadeGc(ctx.saccadeSet4,   ctx);
+            SaccadeSetUtils.saccadeGc(ctx);
         }
 
         if (ctx.cycleEpoch % 9481 == 0) {
@@ -155,7 +155,14 @@ class PROTOVis2 {
             if (ctx.miscRng.genFloat01() < 0.2) { // check probability to generate a continuation of a saccade
                 // try to find a saccade for continuation
 
-                if (ctx.saccadeSet.length > 0) {
+                var continuationSeedPathLength: Int = 3; // is the length of the saccade path which should get extended
+
+                if (ctx.miscRng.genFloat01() < 0.1) { // probability to try to continue a path of the length of 4
+                    continuationSeedPathLength = 4;
+                }
+
+
+                if (ctx.saccadeSetByLength[continuationSeedPathLength].length > 0) {
                     
                     // select random "entry" position in image
                     var foveaCenterLoc: Vec2 = ctx.foveaCenterProposalStrategy.calcNextProposalPos(ctx.foveaCenterRng, {w:ctx.img.w,h:ctx.img.h}); // generate new center position of fovea
@@ -167,7 +174,7 @@ class PROTOVis2 {
                         var classOfFirstVertex: Int = resSingleVertex[0].class_; // we only care about the class of the first vertex of the 'saccade'
 
                         // filter saccades by class of first vertex
-                        var candidateSaccades3: Array<DecoratedPathWithHdEncoding> = ctx.saccadeSet.filter(iv -> iv.payload.pathSaccade.pathItems[0].class_ == classOfFirstVertex); // filter so it's the saccade which starts with the class
+                        var candidateSaccades3: Array<DecoratedPathWithHdEncoding> = ctx.saccadeSetByLength[continuationSeedPathLength].filter(iv -> iv.payload.pathSaccade.pathItems[0].class_ == classOfFirstVertex); // filter so it's the saccade which starts with the class
                         if (candidateSaccades3.length > 0) {
 
                             // select random candidate
@@ -239,7 +246,7 @@ class PROTOVis2 {
                     Sys.println('DBG: add saccade');
                 }
 
-                chosenCandidateSaccade = SaccadeSetUtils.appendSaccade(saccadeWithHdEncoding, ctx.saccadeSet,  ctx);
+                chosenCandidateSaccade = SaccadeSetUtils.appendSaccade(saccadeWithHdEncoding,   ctx);
             }
 
             chosenCandidateSaccade.cycleEpochLastUse = ctx.cycleEpoch; // we need to update this to know which saccade was used last for GC
@@ -834,8 +841,8 @@ class PROTOVis2 {
         
         if (enArtUpdate) {
             // we need to update ART classifier
-            for(iArtCtx in ctx.artCtxs) {
-                iArtCtx.calcUpdate();
+            for (iIdx in 0...saccade.length) {
+                ctx.artCtxs[iIdx].calcUpdate();
             }
         }
 
@@ -984,10 +991,20 @@ class Vis2Ctx {
 
     // set of all known paths with different encodings
     // set is maintained under AIKR
-    public var saccadeSet: Array<DecoratedPathWithHdEncoding> = [];
+    //public var saccadeSet: Array<DecoratedPathWithHdEncoding> = [];
 
-    public var saccadeSet4: Array<DecoratedPathWithHdEncoding> = [];
+    //public var saccadeSet4: Array<DecoratedPathWithHdEncoding> = [];
 
+    // set of all known paths with different encodings
+    // set of saccades by length of saccade
+    // * set is maintained under AIKR
+    // [0] saccades for length 0 (there are none)
+    // [1] saccades for length 1 (there are none)
+    // [2] saccades for length 2 (there are none)
+    // [3] saccades for length 3
+    // [4] saccades for length 4
+    // [5] saccades for length 5
+    public var saccadeSetByLength: Array<  Array<DecoratedPathWithHdEncoding>  >;
 
 
     // classifier for the prototypes of protoobjects which is fed with classification+relative position of datapoints from the "low level" classifier (in our case ART2)
@@ -1026,20 +1043,33 @@ class Vis2Ctx {
         permVecX = BBitvectorUtils.genPerm(60, rng);
         permVecY = BBitvectorUtils.genPerm(60, rng);
         permVecPositionsShuffle = BBitvectorUtils.genPerm(60, rng);
+
+
+        saccadeSetByLength = [];
+        saccadeSetByLength.push([]); // for length 0
+        saccadeSetByLength.push([]); // for length 1
+        saccadeSetByLength.push([]); // for length 2
+        saccadeSetByLength.push([]); // for length 3
+        saccadeSetByLength.push([]); // for length 4
+        saccadeSetByLength.push([]); // for length 5
     }
 }
 
 
 // helper which provides helpers to manage saccades
 class SaccadeSetUtils {
-    public static function appendSaccade(saccade: PathWithHdEncoding, targetSet: Array<DecoratedPathWithHdEncoding>,  ctx: Vis2Ctx): DecoratedPathWithHdEncoding {
+    public static function appendSaccade(saccade: PathWithHdEncoding,  ctx: Vis2Ctx): DecoratedPathWithHdEncoding {
         var saccadeUniqueId: Int = ctx.saccadeUniqueIdCounter++;
         var decoratedSaccade: DecoratedPathWithHdEncoding = new DecoratedPathWithHdEncoding(saccade, saccadeUniqueId);
 
         // NOTE< we don't enforce AIK here! >
-        targetSet.push(decoratedSaccade);
+        if (saccade.pathSaccade.pathItems.length > ctx.saccadeSetByLength.length) {
+            Sys.println('warn: tried to append saccade which is to long!');
+            return null;
+        }
+        ctx.saccadeSetByLength[saccade.pathSaccade.pathItems.length].push(decoratedSaccade);
 
-        Sys.println('DBG nSaccadeSet=${targetSet.length}');
+        Sys.println('DBG specific nSaccadeSet=${ctx.saccadeSetByLength[saccade.pathSaccade.pathItems.length].length}');
 
         return decoratedSaccade;
     }
@@ -1059,9 +1089,10 @@ class SaccadeSetUtils {
         }
 
 
-        // lookup minimal count of overlapping classes of vertices that we accept it as a viable candidate
-        // TODO REFACTOR LOW< do we get away here with just a simple calculation like the the else branch??? >
-        var minimalVertexclassCoincide: Int = 0;
+        // calc minimal count of overlapping classes of vertices that we accept it as a viable candidate
+        // function which maps "2 to 1", "3 to 2", "4 to 3" etc.
+        var minimalVertexclassCoincide: Int = Std.int(saccade.pathSaccade.pathItems.length * 0.76);
+        /* commented because this got refactored to compact code!
         if (saccade.pathSaccade.pathItems.length == 2) {
             minimalVertexclassCoincide = 1;
         }
@@ -1074,10 +1105,7 @@ class SaccadeSetUtils {
         else {
             minimalVertexclassCoincide = Std.int(saccade.pathSaccade.pathItems.length * 2 / 3);
         }
-
-        if(false) {
-            minimalVertexclassCoincide = saccade.pathSaccade.pathItems.length; // HACk< it's probably better if all classes match up! >
-        }
+        */
 
 
         // reject by criterion of overlapping classes of vertices
@@ -1090,7 +1118,7 @@ class SaccadeSetUtils {
     }
 
     public static function lookupBestSaccadeByPositionAndVertexClass(saccade: PathWithHdEncoding,  ctx: Vis2Ctx): DecoratedPathWithHdEncoding {
-        return lookupBestSaccadeByPositionAndVertexClass2(saccade, ctx.saccadeSet,   ctx);
+        return lookupBestSaccadeByPositionAndVertexClass2(saccade, ctx.saccadeSetByLength[saccade.pathSaccade.pathItems.length],   ctx);
     }
     
 
@@ -1100,61 +1128,6 @@ class SaccadeSetUtils {
 
         for (itSaccadeWithPayload in saccadeSet) {
             var itSaccade: PathWithHdEncoding = itSaccadeWithPayload.payload;
-            
-            
-
-            /*
-            if (saccade.pathSaccade.pathItems.length != itSaccade.pathSaccade.pathItems.length) {
-                continue; // iterated doesn't matter if the count of vertices is not the same!
-            }
-            
-            // count how many classifications of vertices coincide
-            var vertexclassCoincideCnt: Int = 0;
-            for (iVertexIdx in 0...saccade.pathSaccade.pathItems.length) {
-                if (saccade.pathSaccade.pathItems[iVertexIdx].class_ == itSaccade.pathSaccade.pathItems[iVertexIdx].class_) {
-                    vertexclassCoincideCnt++;
-                }
-            }
-
-
-            // lookup minimal count of overlapping classes of vertices that we accept it as a viable candidate
-            // TODO REFACTOR LOW< do we get away here with just a simple calculation like the the else branch??? >
-            var minimalVertexclassCoincide: Int = 0;
-            if (saccade.pathSaccade.pathItems.length == 2) {
-                minimalVertexclassCoincide = 1;
-            }
-            else if (saccade.pathSaccade.pathItems.length == 3) {
-                minimalVertexclassCoincide = 2;
-            }
-            else if (saccade.pathSaccade.pathItems.length == 4) {
-                minimalVertexclassCoincide = 2;
-            }
-            else {
-                minimalVertexclassCoincide = Std.int(saccade.pathSaccade.pathItems.length * 2 / 3);
-            }
-
-            if(false) {
-                minimalVertexclassCoincide = saccade.pathSaccade.pathItems.length; // HACk< it's probably better if all classes match up! >
-            }
-
-
-            // reject by criterion of overlapping classes of vertices
-            if (vertexclassCoincideCnt < minimalVertexclassCoincide) {
-                continue; // to little overlap!
-            }
-
-
-            var positionVecSim: Float = BRealvectorUtils.calcCosineSim(itSaccade.vecPositions, saccade.vecPositions);
-
-
-            ///trace('DBG: lookupBestSaccade: icandidate similarity=$positionVecSim'); // DBG
-
-
-            if (positionVecSim > bestHitSaccadePositionSim) {
-                bestHitSaccadePositionSim = positionVecSim;
-                bestHitSaccade = itSaccadeWithPayload;
-            }
-            */
 
             var sim: Null<Float> = cmpSaccades(saccade, itSaccade);
             if (sim == null) { // isn't similar at all?
@@ -1176,27 +1149,30 @@ class SaccadeSetUtils {
 
     // used to keep memory under AIK
     // this has to be called from time to time by the main-loop
-    public static function saccadeGc(saccadeSet: Array<DecoratedPathWithHdEncoding>,   ctx: Vis2Ctx): Array<DecoratedPathWithHdEncoding> {
-        var inplace: Array<DecoratedPathWithHdEncoding> = saccadeSet.copy();
-
-        // * sort by usefulness
-        // TODO< better sorting criterion! >
-        inplace.sort((a, b) -> MathUtils2.sign(  Math.exp(-0.08*(ctx.cycleEpoch - b.cycleEpochLastUse)) - Math.exp(-0.08*(ctx.cycleEpoch - a.cycleEpochLastUse))  ));
-
-        // DBG
-        if (false) {
-            for(iv in inplace) {
-                trace(iv.cycleEpochLastUse);
+    public static function saccadeGc(ctx: Vis2Ctx) {
+        
+        for (saccadeSetIdx in 0...ctx.saccadeSetByLength.length) {
+            var iSaccadeSet: Array<DecoratedPathWithHdEncoding> = ctx.saccadeSetByLength[saccadeSetIdx];
+        
+            var inplace: Array<DecoratedPathWithHdEncoding> = iSaccadeSet.copy();
+    
+            // * sort by usefulness
+            // TODO< better sorting criterion! >
+            inplace.sort((a, b) -> MathUtils2.sign(  Math.exp(-0.08*(ctx.cycleEpoch - b.cycleEpochLastUse)) - Math.exp(-0.08*(ctx.cycleEpoch - a.cycleEpochLastUse))  ));
+    
+            // DBG
+            if (false) {
+                for(iv in inplace) {
+                    trace(iv.cycleEpochLastUse);
+                }
             }
+    
+            var inplaceKeep: Array<DecoratedPathWithHdEncoding> = inplace.slice(0, ctx.paramSaccadesNMax);
+    
+            trace('GC lenbefore=${ctx.saccadeSetByLength[saccadeSetIdx].length}');
+            ctx.saccadeSetByLength[saccadeSetIdx] = inplaceKeep; // keep under AIK
+            trace('GC lenafter=${ctx.saccadeSetByLength[saccadeSetIdx].length}');
         }
-
-        var inplaceKeep: Array<DecoratedPathWithHdEncoding> = inplace.slice(0, ctx.paramSaccadesNMax);
-
-        trace('GC lenbefore=${saccadeSet.length}');
-        saccadeSet = inplaceKeep; // keep under AIK
-        trace('GC lenafter=${saccadeSet.length}');
-
-        return saccadeSet;
     }
 
 
@@ -1346,14 +1322,14 @@ class SaccadeUtils2 {
             }
 
             var saccadeWithHdEncoding: PathWithHdEncoding = SaccadeSetUtils.castPathToPathWithHdEncoding(eyesaccadePath,  ctx);
-            var bestMatchOfFullPath: DecoratedPathWithHdEncoding = SaccadeSetUtils.lookupBestSaccadeByPositionAndVertexClass2(saccadeWithHdEncoding, ctx.saccadeSet4,  ctx);
+            var bestMatchOfFullPath: DecoratedPathWithHdEncoding = SaccadeSetUtils.lookupBestSaccadeByPositionAndVertexClass2(saccadeWithHdEncoding, ctx.saccadeSetByLength[4],  ctx);
             if (bestMatchOfFullPath == null) { // was no full path found?
                 // create a new one
 
                 // * cast to SaccadeWithHdEncoding
                 var saccadeWithHdEncoding: PathWithHdEncoding = SaccadeSetUtils.castPathToPathWithHdEncoding(eyesaccadePath,  ctx);
 
-                var storedCandidateSaccade: DecoratedPathWithHdEncoding  = SaccadeSetUtils.appendSaccade(saccadeWithHdEncoding, ctx.saccadeSet4,  ctx);
+                var storedCandidateSaccade: DecoratedPathWithHdEncoding  = SaccadeSetUtils.appendSaccade(saccadeWithHdEncoding,   ctx);
                 storedCandidateSaccade.cycleEpochLastUse = ctx.cycleEpoch; // we need to update this to know which saccade was used last for GC
                 return storedCandidateSaccade;
             }

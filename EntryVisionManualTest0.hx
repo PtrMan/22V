@@ -196,7 +196,8 @@ class EntryVisionManualTest0 {
             function printConsoleReport() {
                 Sys.print('\n\n\n');
                 Sys.println('final REPORT:');
-                Sys.println('nSaccades=${ctx.saccadeSet.length}'); // how many eye saccades are in the system?
+                Sys.println('nSaccades[3]=${ctx.saccadeSetByLength[3].length}'); // how many eye saccades are in the system?
+                Sys.println('nSaccades[4]=${ctx.saccadeSetByLength[4].length}'); // how many eye saccades are in the system?
                 Sys.print('\n');
                 Sys.println('protoobjects.nPrototypes=${ctx.prototypeClassifierCtx.items.length}');
             }
