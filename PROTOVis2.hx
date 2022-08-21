@@ -29,6 +29,9 @@ import ParticleBasedGroupingAlgo;
 import CfgParser;
 
 
+import VXSituationDetector; // for testing if it compiles
+import VXSitationClassifier; // for testing if it compiles
+
 class PROTOVis2 {
     
 
@@ -70,6 +73,13 @@ class PROTOVis2 {
 
         // tuning 
         ctx.artClassifier.vigilance = 0.99;
+
+
+        var config__vxSituationDetectorCtx__vecLength = 512;
+        ctx.vxSituationDetectorCtx = new VXSituationDetectorContext(config__vxSituationDetectorCtx__vecLength);
+
+        var config__vxSitationClassifierCtx__nEntriesMax = 100;
+        ctx.vxSitationClassifierCtx = new VXSitationClassifierCtx(config__vxSitationClassifierCtx__nEntriesMax);
 
 
         readCfg(ctx);
@@ -275,7 +285,11 @@ class PROTOVis2 {
     public static function endFrame(ctx: Vis2Ctx) {
         ctx.frameCounter++;
 
+        if ((ctx.frameCounter % 600) == 0) {
+            VXSituationDetector.forceGc(ctx.vxSituationDetectorCtx);
 
+            VXSitationClassifier.forceGc(ctx.vxSitationClassifierCtx);
+        }
 
         // TODO TODO TODO< set this to true and see what it does with a video
         var enProcessAsStream: Bool = true; // process the input images as a continuos stream?
@@ -672,6 +686,29 @@ class PROTOVis2 {
         ctx.level0SampleContainer = [];
 
 
+
+        // send frame to situation detector
+        {
+            var entityClasses: Array<Int> = [];
+            // FIXME< we need different local variables for "protoObjects" visible in the scene!
+            //        one for all tried and recognized and one for the really detected
+            entityClasses = protoObjects.map(iObservedProtoobject -> iObservedProtoobject.protoobj.id);
+
+            VXSituationDetector.observe(entityClasses,   ctx.vxSituationDetectorCtx);
+        }
+
+        // finish situation
+        {
+            var isSituationEnded = (ctx.frameCounter % Std.int(0.7*30.0)) == 0; // 30 seconds
+            if (isSituationEnded) {
+                VXSituationDetector.finishCurrentSituation(ctx.frameCounter,   ctx.vxSituationDetectorCtx);
+
+                var observedHdVectorOfSituation: Array<Float> = ctx.vxSituationDetectorCtx.currentSituationHdVector;
+                VXSitationClassifier.observeSituation(observedHdVectorOfSituation, ctx.frameCounter,   ctx.vxSitationClassifierCtx);
+            }
+        }
+
+
         // copy frame
         ctx.imgFrameBefore = ctx.img;
     }
@@ -802,7 +839,6 @@ class PROTOVis2 {
             // DBG
             //trace(stimulusVec);
             //trace(classifierInputVec);
-
 
 
             {
@@ -984,9 +1020,16 @@ class Vis2Ctx {
     public var artCtxs: Array<ArtCtx> = []; // contexts for art classification in parallel
 
 
-
+    // IS:component
     public var particleBasedGrouping: ParticleBasedGroupingAlgo = new ParticleBasedGroupingAlgo();
 
+
+
+    // IS:component
+    public var vxSituationDetectorCtx: VXSituationDetectorContext;
+
+    // IS:component
+    public var vxSitationClassifierCtx: VXSitationClassifierCtx;
 
 
     // set of all known paths with different encodings
