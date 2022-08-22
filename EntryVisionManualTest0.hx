@@ -246,6 +246,22 @@ class EntryVisionManualTest0 {
                 PROTOVis2.endFrame(ctx); // send message that the processing of the frame is done, so it can do work when the frame is completed
             }
         }
+        else if (chosenEntryname == "script0") {            
+            var scriptFilepath = Sys.args()[1];
+            var scriptfileContent = sys.io.File.getContent(scriptFilepath);
+
+            var ctx: Vis2Ctx = new Vis2Ctx();
+            PROTOVis2.defaultInit(ctx);
+
+            for (iLine in scriptfileContent.split("\n")) { // execute lines of script
+                var resCode: Int = execCmd(iLine, ctx);
+                if (resCode == 1) {
+                    break; // force exit!
+                }
+            }
+        }
+
+
         else {
             Sys.println("FATAL ERROR: unknown selected entry!");
         }
@@ -254,11 +270,20 @@ class EntryVisionManualTest0 {
     // helper to execute a command
     // /return code to execute from outside loop
     public static function execCmd(commandString: String,  ctx: Vis2Ctx): Int {
-        if (commandString.length >= 7 && commandString.substr(0, 7) == "!readf ") { // read image file
+        if (commandString.length >= 7 && commandString.substr(0, 7) == "!readf ") { // read image file (only *.ppm)
             var filenameToload: String = commandString.substr(7);
 
             // load image from source
             ctx.img = PpmReader.readPpm(filenameToload);
+            PROTOVis2.notifyImageUpdated(ctx); // we need to notify perception system that image was changed
+        }
+        else if (commandString.length >= 8 && commandString.substr(0, 8) == "!readf2 ") { // read image file from any supported format
+            var filenameToload: String = commandString.substr(8);
+
+            ExecProgramsUtils.convertGrabbedImage(filenameToload, "outCurrentFrameFromSrc.ppm");
+
+            // load image from source
+            ctx.img = PpmReader.readPpm("outCurrentFrameFromSrc.ppm");
             PROTOVis2.notifyImageUpdated(ctx); // we need to notify perception system that image was changed
         }
         else if (commandString.length >= 3 && commandString.substr(0, 3) == "!s ") { // do n inference steps
@@ -273,6 +298,12 @@ class EntryVisionManualTest0 {
         }
         else if (commandString.length >= 3 && commandString.substr(0, 3) == "!qq") { // force termination
             return 1; // return code to exit program
+        }
+        else if (commandString == "!startFrame") {
+            PROTOVis2.startFrame(ctx);
+        }
+        else if (commandString == "!endFrame") {
+            PROTOVis2.endFrame(ctx);
         }
         else {
             // soft error: unknown command, ignore
