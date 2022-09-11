@@ -619,6 +619,11 @@ class PROTOVis2 {
                     ExtA.update(s); // send to display with GUI
                 }
             }
+
+            // transfer "allProposalRegions" 
+            {
+                ctx.lastFrameAllProposalRegions = allProposalRegions;
+            }
         }
 
 
@@ -1044,6 +1049,12 @@ class Vis2Ctx {
 
     // IS:component
     public var vxSitationClassifierCtx: VXSitationClassifierCtx;
+
+
+
+    // proposal regions of the last frame, can be used in any 'context'
+    public var lastFrameAllProposalRegions: Array<{rect:RectInt,id:Int}> =null;
+
 
 
 

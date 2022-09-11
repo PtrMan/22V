@@ -261,6 +261,56 @@ class EntryVisionManualTest0 {
             }
         }
 
+        // automatically tests the tracking functionality
+        else if (chosenEntryname == "trackingTest0") {
+            var overallScore: Float = 0.0;
+
+            
+            var ctx: Vis2Ctx = new Vis2Ctx();
+            PROTOVis2.defaultInit(ctx);
+
+
+            var jsonContent = sys.io.File.getContent("./jsonOut.json");
+            var jsonTree = haxe.Json.parse(jsonContent);
+
+            for (iFrameIdx in 0...jsonTree.length) {
+                // read image and do all the processing
+                var resCode: Int = execCmd('!readf2 ./sceneOutIm/frame${iFrameIdx}.jpg', ctx);
+
+                resCode = execCmd('!startFrame', ctx);
+                for (j in 0...10) {
+                    resCode = execCmd('!s 45', ctx);
+                }
+                resCode = execCmd('!endFrame', ctx);
+
+
+
+                var iFrame = jsonTree[iFrameIdx];
+                var obj = iFrame.objs[0];
+
+                var iExpectedPosX: Int = obj.pos[0];
+                var iExpectedPosY: Int = obj.pos[1];
+
+
+
+
+                if (ctx.lastFrameAllProposalRegions != null && ctx.lastFrameAllProposalRegions.length > 0) {
+                    var iProposalCenter = ctx.lastFrameAllProposalRegions[0].rect.calcCenter();
+
+                    // calc score based on distance to expected center
+                    var diffX: Float = iProposalCenter.x - iExpectedPosX;
+                    var diffY: Float = iProposalCenter.y - iExpectedPosY;
+    
+                    var dist: Float = Math.sqrt(diffX*diffX + diffY*diffY);
+                    var distRating: Float = Math.exp(-dist*0.08); // compute score by how close the tracked protoobject is to the expected position
+    
+    
+                    // combine rating of the difference between this protoobject and the expected object with the overall score over all frames
+                    overallScore += distRating;
+                }
+            }
+        }
+
 
         else {
             Sys.println("FATAL ERROR: unknown selected entry!");
