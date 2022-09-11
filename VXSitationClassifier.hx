@@ -24,7 +24,11 @@ class VXSitationClassifier {
         // check if situation is not recognized (because it is completely novel)
         var isNovel: Bool = situationNovelity > ctx.setting__novelityThreshold;
 
+        trace('VXSitationClassifier HERE');
+
         if (isNovel) {
+            trace('VXSitationClassifier.observeSituation(): detected new situation! situationNovelity=${situationNovelity}');
+
             // create a new situation and store it
             var createdSituation = new VXSituationClassifierEntry(observedHdVector, ctx.sitationIdCounter++, currentTime);
             ctx.situationEntries.push(createdSituation);

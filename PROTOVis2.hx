@@ -32,6 +32,11 @@ import CfgParser;
 import VXSituationDetector; // for testing if it compiles
 import VXSitationClassifier; // for testing if it compiles
 
+import VSaccadeCommonDat;
+import VSaccadeUtilities;
+
+import VSaccade2;
+
 class PROTOVis2 {
     
 
@@ -208,7 +213,7 @@ class PROTOVis2 {
                             // * cast to SaccadeWithHdEncoding
                             var saccadeWithHdEncoding: PathWithHdEncoding = SaccadeSetUtils.castPathToPathWithHdEncoding(saccade,  ctx);
 
-                            var sim: Null<Float> = SaccadeSetUtils.cmpSaccades(selSeedSaccade3.payload, saccadeWithHdEncoding); // compare candidate to actual saccade which was executed
+                            var sim: Null<Float> = VSaccadeUtilities.cmpSaccades(selSeedSaccade3.payload, saccadeWithHdEncoding, 0, 0); // compare candidate to actual saccade which was executed
                             if (sim != null) { // is it similar enough?
                                 // * try to extend it
                                 // the function also appends the new saccade!
@@ -260,6 +265,15 @@ class PROTOVis2 {
             }
 
             chosenCandidateSaccade.cycleEpochLastUse = ctx.cycleEpoch; // we need to update this to know which saccade was used last for GC
+
+
+
+            // reward similar candidiates with new algorithm from 11.09.2022
+            {
+                var selSaccades = ctx.saccadeSetByLength[saccadeWithHdEncoding.pathSaccade.pathItems.length];
+                ZZZ.x(saccadeWithHdEncoding, selSaccades, ctx.saccadeRewardCtx);
+            }
+
 
             // OUTPUT
             Sys.println('OUT: saccade.id=${chosenCandidateSaccade.id} pos=<${Std.int(foveaCenterLoc.x)} ${Std.int(foveaCenterLoc.y)}>'); // output to outside system a message that
@@ -699,7 +713,7 @@ class PROTOVis2 {
 
         // finish situation
         {
-            var isSituationEnded = (ctx.frameCounter % Std.int(0.7*30.0)) == 0; // 30 seconds
+            var isSituationEnded = (ctx.frameCounter % Std.int(/*0.7*30.0*/3)) == 0; // 30 seconds
             if (isSituationEnded) {
                 VXSituationDetector.finishCurrentSituation(ctx.frameCounter,   ctx.vxSituationDetectorCtx);
 
@@ -1032,6 +1046,10 @@ class Vis2Ctx {
     public var vxSitationClassifierCtx: VXSitationClassifierCtx;
 
 
+
+    public var saccadeRewardCtx: AttCtx = new AttCtx();
+
+
     // set of all known paths with different encodings
     // set is maintained under AIKR
     //public var saccadeSet: Array<DecoratedPathWithHdEncoding> = [];
@@ -1117,49 +1135,6 @@ class SaccadeSetUtils {
         return decoratedSaccade;
     }
 
-    // compare two saccades and returns their similarity or if they are not similar at all
-    public static function cmpSaccades(saccade: PathWithHdEncoding, itSaccade: PathWithHdEncoding): Null<Float> {
-        if (saccade.pathSaccade.pathItems.length != itSaccade.pathSaccade.pathItems.length) {
-            return null; // count of the vertices is not the same - can't be similar!
-        }
-        
-        // count how many classifications of vertices coincide
-        var vertexclassCoincideCnt: Int = 0;
-        for (iVertexIdx in 0...saccade.pathSaccade.pathItems.length) {
-            if (saccade.pathSaccade.pathItems[iVertexIdx].class_ == itSaccade.pathSaccade.pathItems[iVertexIdx].class_) {
-                vertexclassCoincideCnt++;
-            }
-        }
-
-
-        // calc minimal count of overlapping classes of vertices that we accept it as a viable candidate
-        // function which maps "2 to 1", "3 to 2", "4 to 3" etc.
-        var minimalVertexclassCoincide: Int = Std.int(saccade.pathSaccade.pathItems.length * 0.76);
-        /* commented because this got refactored to compact code!
-        if (saccade.pathSaccade.pathItems.length == 2) {
-            minimalVertexclassCoincide = 1;
-        }
-        else if (saccade.pathSaccade.pathItems.length == 3) {
-            minimalVertexclassCoincide = 2;
-        }
-        else if (saccade.pathSaccade.pathItems.length == 4) {
-            minimalVertexclassCoincide = 2;
-        }
-        else {
-            minimalVertexclassCoincide = Std.int(saccade.pathSaccade.pathItems.length * 2 / 3);
-        }
-        */
-
-
-        // reject by criterion of overlapping classes of vertices
-        if (vertexclassCoincideCnt < minimalVertexclassCoincide) {
-            return null; // to little overlap!
-        }
-
-        var positionVecSim: Float = BRealvectorUtils.calcCosineSim(itSaccade.vecPositions, saccade.vecPositions);
-        return positionVecSim;
-    }
-
     public static function lookupBestSaccadeByPositionAndVertexClass(saccade: PathWithHdEncoding,  ctx: Vis2Ctx): DecoratedPathWithHdEncoding {
         return lookupBestSaccadeByPositionAndVertexClass2(saccade, ctx.saccadeSetByLength[saccade.pathSaccade.pathItems.length],   ctx);
     }
@@ -1172,7 +1147,7 @@ class SaccadeSetUtils {
         for (itSaccadeWithPayload in saccadeSet) {
             var itSaccade: PathWithHdEncoding = itSaccadeWithPayload.payload;
 
-            var sim: Null<Float> = cmpSaccades(saccade, itSaccade);
+            var sim: Null<Float> = VSaccadeUtilities.cmpSaccades(saccade, itSaccade, 0, 0);
             if (sim == null) { // isn't similar at all?
                 continue;
             }
@@ -1382,58 +1357,6 @@ class SaccadeUtils2 {
 }
 
 
-// decoration holding attention metainformation and other meta-information about the path
-class DecoratedPathWithHdEncoding {
-    public var payload: PathWithHdEncoding;
-
-
-    public var id: Int; // unique id of the path
-    // TODO REFACTOR< id should be Int64 ! >
-
-
-    public var cycleEpochLastUse: Int = 0; // cycle time of last READ use
-    // TODO REFACTOR< value should be Int64 ! >
-
-    public function new(payload,  id) {
-        this.payload = payload;
-        this.id = id;
-    }
-}
-
-
-
-// path with HD encoding
-// carries explicit symbolic information about the path for easier manipulation
-class PathWithHdEncoding {
-    public var vecPositions: Array<Float>; // hyperdimensional vector representing  position tuples
-
-    public var pathSaccade: EyesaccadePath; // symbolic path with relative positions
-
-    public function new(vecPositions, pathSaccade) {
-        this.vecPositions = vecPositions;
-        this.pathSaccade = pathSaccade;
-    }
-}
-
-
-
-
-// part of eye saccade
-class EyesaccadePath {
-    public var pathItems: Array<PathItem> = [];
-
-    public function new() {}
-}
-
-class PathItem {
-    public var relRelPos: Vec2; // relative position to some reference in fovea real valued frame in range [-1.0;1.0]
-    public var class_: Int; // class of the classification at this position
-
-    public function new(relRelPos, class_) {
-        this.relRelPos = relRelPos;
-        this.class_ = class_;
-    }
-}
 
 
 
