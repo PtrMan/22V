@@ -308,6 +308,8 @@ class EntryVisionManualTest0 {
                     // combine rating of the difference between this protoobject and the expected object with the overall score over all frames
                     overallScore += distRating;
                 }
+
+                trace('overallScore=${overallScore}');
             }
         }
 
