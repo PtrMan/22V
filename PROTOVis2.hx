@@ -15,6 +15,8 @@ import BBitvectorUtils;
 import Rng0;
 import ProtoobjectClassifier;
 
+import PROTOVisionBayes0;
+
 import GaborKernel;
 
 import MyArt_v1;
@@ -107,6 +109,10 @@ class PROTOVis2 {
 
 
         ctx.img = new Map2dRgb(32,32); // init with dummy image
+
+
+
+        ctx.visionProbMotion.init(TODO);
     }
 
     // read and parse config file
@@ -149,7 +155,7 @@ class PROTOVis2 {
     public static function doCycle(ctx: Vis2Ctx) {
         ctx.cycleEpoch++;
         
-        if (true) { // DBG level 1
+        if (false) { // DBG level 1
             Sys.print('\n\n\n');
         }
 
@@ -257,7 +263,7 @@ class PROTOVis2 {
             
             var chosenCandidateSaccade: DecoratedPathWithHdEncoding = bestCandidateExistingSaccade; // variable which holds the chosen saccade
             if (bestCandidateExistingSaccade == null) { // was no best matching eye saccade found?
-                if (true) { // DBG
+                if (false) { // DBG
                     Sys.println('DBG: add saccade');
                 }
 
@@ -276,15 +282,18 @@ class PROTOVis2 {
 
 
             // OUTPUT
-            Sys.println('OUT: saccade.id=${chosenCandidateSaccade.id} pos=<${Std.int(foveaCenterLoc.x)} ${Std.int(foveaCenterLoc.y)}>'); // output to outside system a message that
-            Sys.println('OUTN:<{(saccid${chosenCandidateSaccade.id}*(${Std.int(foveaCenterLoc.x/10)}*${Std.int(foveaCenterLoc.y/10)}))} --> perceptSac>. :|:'); // create narsese
+            ////Sys.println('OUT: saccade.id=${chosenCandidateSaccade.id} pos=<${Std.int(foveaCenterLoc.x)} ${Std.int(foveaCenterLoc.y)}>'); // output to outside system a message that
+            
+            if (ctx.emitNarsese) {
+                Sys.println('OUTN:<{(saccid${chosenCandidateSaccade.id}*(${Std.int(foveaCenterLoc.x/10)}*${Std.int(foveaCenterLoc.y/10)}))} --> perceptSac>. :|:'); // create narsese
+            }
         }
 
 
         var timeCycleEnd: Float = Sys.time();
         var timeCycle: Float = timeCycleEnd - timeCycleBegin;
         ctx.diagnostics__timeCycleAccu += timeCycle;
-        trace('diagnostics.time.cycle=${ctx.diagnostics__timeCycleAccu}');
+        ////trace('diagnostics.time.cycle=${ctx.diagnostics__timeCycleAccu}');
     }
 
     // must be called when the processing of a frame begins
@@ -411,7 +420,6 @@ class PROTOVis2 {
         }
 
 
-        
         if (enProcessAsStream && ctx.config__typeProtobjectSrc == "flow") {
             // compute protoobjects based on optical flow
 
@@ -627,6 +635,16 @@ class PROTOVis2 {
         }
 
 
+        // probabilistic motion estimator
+        if (enProcessAsStream && ctx.config__typeProtobjectSrc == "prob0") {
+            ctx.visionProbMotion.imgTminusOne = null; //TODO;
+            ctx.visionProbMotion.imgTzero = null; //TODO;
+            ctx.visionProbMotion.doWork();
+
+            // translate prototypes from probabilistic motion estimator to our format
+            // TODO TODO TODO TODO TODO TODO TODO
+            // TODO TODO TODO TODO TODO TODO TODO
+        }
 
 
 
@@ -696,7 +714,9 @@ class PROTOVis2 {
                     // TODO< add more factors into confidence calculations!
                     var c: Float = 0.99 * (1.0 - Math.exp(-1.0*0.01*iProtoobject.protoobj.evidenceCount));
 
-                    Sys.println('OUTN:<{(protoobjcls${iProtoobject.protoobj.id}*${Std.int(iProtoobject.center.x/10.0)}Q${Std.int(iProtoobject.center.y/10.0)})} --> detectedprotoobj>. {1.0 $c}:|:');
+                    if (ctx.emitNarsese) {
+                        Sys.println('OUTN:<{(protoobjcls${iProtoobject.protoobj.id}*${Std.int(iProtoobject.center.x/10.0)}Q${Std.int(iProtoobject.center.y/10.0)})} --> detectedprotoobj>. {1.0 $c}:|:');
+                    }
                 }
             }
         }
@@ -949,7 +969,7 @@ class PROTOVis2 {
 
 
         // print diagnostics
-        trace('diagnostics.time.ArtAccu=${ctx.diagnostics__timeArtAccu}');
+        ////trace('diagnostics.time.ArtAccu=${ctx.diagnostics__timeArtAccu}');
 
         return pathClasses;
     }
@@ -987,6 +1007,8 @@ class PROTOVis2 {
 
 // context for vision processing
 class Vis2Ctx {
+    public var emitNarsese: Bool = true;
+
     // parameters / settings
     public var paramSaccadesNMax: Int = 100; // maximal number of saccades to maintain, is a AIKR parameter
     public var saccadePositionSimThreshold: Float = -1.0; // threshold of similarity of positions which is used to determine if saccade is similar enough to existing ones
@@ -1084,6 +1106,10 @@ class Vis2Ctx {
 
 
 
+    public var visionProbMotion: VisionProbabilisticMotion0 = new VisionProbabilisticMotion0();
+
+
+
     // the used strategy for the 
     public var foveaCenterProposalStrategy: FoveaCenterPropsalStrategy = new FoveaCenterPropsalStrategy();
 
@@ -1141,7 +1167,7 @@ class SaccadeSetUtils {
         }
         ctx.saccadeSetByLength[saccade.pathSaccade.pathItems.length].push(decoratedSaccade);
 
-        Sys.println('DBG specific nSaccadeSet=${ctx.saccadeSetByLength[saccade.pathSaccade.pathItems.length].length}');
+        ////Sys.println('DBG specific nSaccadeSet=${ctx.saccadeSetByLength[saccade.pathSaccade.pathItems.length].length}');
 
         return decoratedSaccade;
     }
@@ -1198,9 +1224,9 @@ class SaccadeSetUtils {
     
             var inplaceKeep: Array<DecoratedPathWithHdEncoding> = inplace.slice(0, ctx.paramSaccadesNMax);
     
-            trace('GC lenbefore=${ctx.saccadeSetByLength[saccadeSetIdx].length}');
+            ////trace('GC lenbefore=${ctx.saccadeSetByLength[saccadeSetIdx].length}');
             ctx.saccadeSetByLength[saccadeSetIdx] = inplaceKeep; // keep under AIK
-            trace('GC lenafter=${ctx.saccadeSetByLength[saccadeSetIdx].length}');
+            ////trace('GC lenafter=${ctx.saccadeSetByLength[saccadeSetIdx].length}');
         }
     }
 
@@ -1451,9 +1477,28 @@ class ExecProgramsUtils {
 
     // helper to convert the grabbed image from the video camera
     public static function convertGrabbedImage(srcName: String, destName:String) {
+        {
+            //sys.FileSystem.deleteFile('./'+destName);
+        }
+        
         var cmd: String = 'convert $srcName -compress none $destName';
+        trace(cmd);
         var p: Process = new Process(cmd);
         p.exitCode(); // wait till the termination of the program
+
+        {
+            var filecontent: String = sys.io.File.getContent(srcName);
+
+            var fileContentHash: String = haxe.crypto.Md5.encode(filecontent);
+            trace('A hash=${fileContentHash}');
+        }
+
+        {
+            var filecontent: String = sys.io.File.getContent(destName);
+
+            var fileContentHash: String = haxe.crypto.Md5.encode(filecontent);
+            trace('B hash=${fileContentHash}');
+        }
     }
 }
 

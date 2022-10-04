@@ -269,13 +269,19 @@ class EntryVisionManualTest0 {
             var ctx: Vis2Ctx = new Vis2Ctx();
             PROTOVis2.defaultInit(ctx);
 
+            ctx.emitNarsese = false;
+
+            ctx.particleBasedGrouping.setting__velNullThreshold = 0.00001;
+            ctx.particleBasedGrouping.setting__velScale = 1000000000000.0;
+
 
             var jsonContent = sys.io.File.getContent("./jsonOut.json");
             var jsonTree = haxe.Json.parse(jsonContent);
 
             for (iFrameIdx in 0...jsonTree.length) {
                 // read image and do all the processing
-                var resCode: Int = execCmd('!readf2 ./sceneOutIm/frame${iFrameIdx}.jpg', ctx);
+                trace('!readf2 ./sceneOutImg/frame${iFrameIdx}.jpg');
+                var resCode: Int = execCmd('!readf2 ./sceneOutImg/frame${iFrameIdx}.jpg', ctx);
 
                 resCode = execCmd('!startFrame', ctx);
                 for (j in 0...10) {
@@ -332,10 +338,10 @@ class EntryVisionManualTest0 {
         else if (commandString.length >= 8 && commandString.substr(0, 8) == "!readf2 ") { // read image file from any supported format
             var filenameToload: String = commandString.substr(8);
 
-            ExecProgramsUtils.convertGrabbedImage(filenameToload, "outCurrentFrameFromSrc.ppm");
+            ExecProgramsUtils.convertGrabbedImage(filenameToload, "./outCurrentFrameFromSrc.ppm");
 
             // load image from source
-            ctx.img = PpmReader.readPpm("outCurrentFrameFromSrc.ppm");
+            ctx.img = PpmReader.readPpm("./outCurrentFrameFromSrc.ppm");
             PROTOVis2.notifyImageUpdated(ctx); // we need to notify perception system that image was changed
         }
         else if (commandString.length >= 3 && commandString.substr(0, 3) == "!s ") { // do n inference steps

@@ -4,7 +4,10 @@ import Map2dRgb;
 class PpmReader {
     public static function readPpm(path: String): Map2dRgb {
         var filecontent: String = sys.io.File.getContent(path);
-        
+
+        var fileContentHash: String = haxe.crypto.Md5.encode(filecontent);
+        trace('PpmReader.readPpm() hash=${fileContentHash}');
+
         var lines: Array<String> = filecontent.split("\n");
 
         var iLineCnt: Int = 0; // line counter
